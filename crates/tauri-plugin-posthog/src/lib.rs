@@ -4,3 +4,4 @@
 pub mod event;
 pub mod identity;
 pub mod queue;
+pub mod send;
