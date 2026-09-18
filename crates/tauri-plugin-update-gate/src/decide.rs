@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// The document as read from the update server, parsed loosely: every field
 /// is optional so a document the app doesn't fully recognise yet still opens
 /// the gate instead of failing to parse.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Document {
     pub min_version: Option<String>,

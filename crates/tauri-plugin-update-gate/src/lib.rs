@@ -2,3 +2,4 @@
 //! app whether the installed copy is too old to run.
 
 pub mod decide;
+pub mod source;
