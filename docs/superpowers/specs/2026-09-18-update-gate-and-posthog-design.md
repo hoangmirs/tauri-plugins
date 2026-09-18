@@ -51,6 +51,14 @@ Reads one JSON document and answers one question: may this copy keep playing?
 
 Unknown fields are ignored, so an app may keep its own keys in the same file.
 
+**Per-platform versions** (added 2026-09-18). One app version ships to every
+platform, but the stores do not release it on the same day: Android is live
+in hours, iOS waits for review. So a document may carry
+`"platforms": { "ios": { "minVersion": "…", "latestVersion": "…" } }`. A
+platform's own field wins; a field it leaves out, a `null` entry, or no entry
+falls back to the top level. An unreadable version in an override opens the
+gate on that platform only. The answer's `latestVersion` is the platform's own.
+
 **Setup**, in the app's `lib.rs`:
 
 ```rust

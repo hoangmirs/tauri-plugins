@@ -17,6 +17,18 @@ pub struct Document {
     pub latest_version: Option<String>,
     pub message: HashMap<String, String>,
     pub url: HashMap<String, Option<String>>,
+    /// Versions one platform holds apart from the rest. The stores release on
+    /// different days: the floor can rise everywhere while iOS still waits in
+    /// review. A `null` entry is the same as none.
+    pub platforms: HashMap<String, Option<Override>>,
+}
+
+/// One platform's own versions. A field it leaves out comes from the top level.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Override {
+    pub min_version: Option<String>,
+    pub latest_version: Option<String>,
 }
 
 /// Where the running copy stands relative to the document's versions.
@@ -47,16 +59,23 @@ pub struct Gate {
 /// document is a server mistake, not the running app's fault.
 #[must_use]
 pub fn decide(doc: &Document, running: &str, lang: &str, platform: &str) -> Gate {
-    let latest_version = doc.latest_version.clone();
+    let own = doc.platforms.get(platform).and_then(Option::as_ref);
+    let min_version = own
+        .and_then(|o| o.min_version.as_ref())
+        .or(doc.min_version.as_ref());
+    let latest_version = own
+        .and_then(|o| o.latest_version.as_ref())
+        .or(doc.latest_version.as_ref())
+        .cloned();
 
-    let parse = |v: &Option<String>| -> Result<Option<semver::Version>, semver::Error> {
-        v.as_deref().map(semver::Version::parse).transpose()
+    let parse = |v: Option<&String>| -> Result<Option<semver::Version>, semver::Error> {
+        v.map(|v| semver::Version::parse(v)).transpose()
     };
 
     let (Ok(running), Ok(min), Ok(latest)) = (
         semver::Version::parse(running),
-        parse(&doc.min_version),
-        parse(&doc.latest_version),
+        parse(min_version),
+        parse(latest_version.as_ref()),
     ) else {
         return Gate {
             state: State::Ok,
@@ -205,5 +224,58 @@ mod tests {
                 "url": "https://example.com",
             })
         );
+    }
+
+    /// The top level raised to 1.3.0 everywhere, with iOS held at 1.2.0
+    /// while its build waits in review.
+    const HELD_BACK: &str = r#"{"minVersion":"1.3.0","latestVersion":"1.4.0",
+        "platforms":{"ios":{"minVersion":"1.2.0"}}}"#;
+
+    #[test]
+    fn a_platform_can_hold_its_floor_below_the_rest() {
+        let d = doc(HELD_BACK);
+        assert_eq!(decide(&d, "1.2.5", "vi", "ios").state, State::Optional);
+        assert_eq!(decide(&d, "1.2.5", "vi", "android").state, State::Forced);
+    }
+
+    #[test]
+    fn a_platform_can_hold_its_offer_back_and_reports_its_own_latest() {
+        let d = doc(r#"{"minVersion":"1.0.0","latestVersion":"1.4.0",
+                "platforms":{"ios":{"latestVersion":"1.3.0"}}}"#);
+        let ios = decide(&d, "1.3.0", "vi", "ios");
+        assert_eq!(ios.state, State::Ok);
+        assert_eq!(ios.latest_version.as_deref(), Some("1.3.0"));
+        let android = decide(&d, "1.3.0", "vi", "android");
+        assert_eq!(android.state, State::Optional);
+        assert_eq!(android.latest_version.as_deref(), Some("1.4.0"));
+    }
+
+    #[test]
+    fn an_override_leaves_the_field_it_does_not_name_to_the_top_level() {
+        let d = doc(HELD_BACK);
+        // iOS overrides only the floor, so the offer still comes from 1.4.0.
+        assert_eq!(decide(&d, "1.3.0", "vi", "ios").state, State::Optional);
+        assert_eq!(
+            decide(&d, "1.3.0", "vi", "ios").latest_version.as_deref(),
+            Some("1.4.0")
+        );
+    }
+
+    #[test]
+    fn a_null_or_empty_override_means_the_top_level() {
+        for platforms in [r#"{"ios":null}"#, r#"{"ios":{}}"#] {
+            let d = doc(&format!(
+                r#"{{"minVersion":"1.3.0","platforms":{platforms}}}"#
+            ));
+            assert_eq!(decide(&d, "1.2.0", "vi", "ios").state, State::Forced);
+        }
+    }
+
+    #[test]
+    fn an_unreadable_override_opens_the_gate_on_that_platform_only() {
+        let d = doc(r#"{"minVersion":"1.3.0",
+                "platforms":{"ios":{"minVersion":"soon"}}}"#);
+        assert_eq!(decide(&d, "1.2.0", "vi", "ios").state, State::Ok);
+        assert_eq!(decide(&d, "1.2.0", "vi", "android").state, State::Forced);
     }
 }
