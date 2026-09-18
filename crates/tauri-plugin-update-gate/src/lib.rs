@@ -41,58 +41,86 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
         .build()
 }
 
-/// Asks the managed `Source` whether the running copy may still play. The
-/// version comes from Tauri's own `PackageInfo`, never from the caller, so a
-/// webview can't lie about which build it is.
+/// Asks the managed `Source` whether the running copy may still play, in
+/// `lang` — the app's own language choice, e.g. one the player picked in
+/// its own Settings, independent of the OS — falling back through
+/// `resolve_language` to the OS environment and then `"en"` when `lang` is
+/// absent or unusable. The version comes from Tauri's own `PackageInfo`,
+/// never from the caller, so a webview can't lie about which build it is.
 ///
 /// Returns `Result` only because Tauri requires it of an async command that
 /// borrows `State`; the gate itself fails open, so this never returns `Err`.
 #[tauri::command]
-async fn check<R: Runtime>(app: AppHandle<R>, source: Managed<'_, Source>) -> Result<Gate, String> {
+async fn check<R: Runtime>(
+    app: AppHandle<R>,
+    source: Managed<'_, Source>,
+    lang: Option<String>,
+) -> Result<Gate, String> {
     let running = app.package_info().version.to_string();
-    Ok(source.gate(&running, &language(), PLATFORM).await)
+    let lang = resolve_language(lang.as_deref(), env_language().as_deref());
+    Ok(source.gate(&running, &lang, PLATFORM).await)
 }
 
-/// Reads the two-letter language code the OS reports, lowercased. Tauri
-/// 2.11 has no direct locale API on desktop, so this falls back to the
-/// POSIX locale environment variables; on mobile those are typically unset,
-/// so `language_from`'s `"en"` fallback is what actually runs there.
-fn language() -> String {
-    let raw = std::env::var("LANG")
+/// Resolves the language to check the gate against: the caller's own
+/// choice first, then the OS environment, then `"en"` if neither yields a
+/// usable two-letter code. Kept pure and separate from where each side
+/// comes from so the fallback order is unit-testable without touching the
+/// environment.
+fn resolve_language(caller: Option<&str>, env: Option<&str>) -> String {
+    caller
+        .and_then(parse_language)
+        .or_else(|| env.and_then(parse_language))
+        .unwrap_or_else(|| "en".to_string())
+}
+
+/// Reads the OS's language hint, unparsed, from the usual POSIX locale
+/// environment variables. Desktop only: mobile targets typically leave
+/// these unset, so `resolve_language`'s `"en"` fallback is what actually
+/// runs there whenever the caller doesn't supply its own language.
+fn env_language() -> Option<String> {
+    std::env::var("LANG")
         .or_else(|_| std::env::var("LC_ALL"))
         .or_else(|_| std::env::var("LC_MESSAGES"))
-        .ok();
-    language_from(raw.as_deref())
+        .ok()
 }
 
-/// Pulls a lowercase two-letter language code out of a POSIX locale string
-/// such as `"vi_VN.UTF-8"` or `"en-US"`. Anything that doesn't yield exactly
-/// two letters — including `None`, the empty string, and the `"C"`/`"POSIX"`
-/// locale, which names no language at all — falls back to `"en"`, matching
-/// `Document::message`'s own English fallback.
-fn language_from(raw: Option<&str>) -> String {
-    raw.and_then(|s| s.split(['_', '.', '-']).next())
+/// Pulls a lowercase two-letter language code out of a locale-ish string —
+/// a bare code like `"vi"`, or a POSIX locale like `"vi_VN.UTF-8"` or
+/// `"en-US"` — by taking the substring before the first `_`, `.`, or `-`.
+/// Returns `None` for anything that doesn't reduce to exactly two ASCII
+/// letters, including `""`, `"C"`, and `"POSIX"`, none of which name a
+/// language.
+fn parse_language(raw: &str) -> Option<String> {
+    raw.split(['_', '.', '-'])
+        .next()
         .map(str::to_lowercase)
         .filter(|code| code.len() == 2 && code.bytes().all(|b| b.is_ascii_lowercase()))
-        .unwrap_or_else(|| "en".to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::language_from;
+    use super::resolve_language;
 
     #[test]
-    fn reads_the_language_before_region_or_encoding() {
-        assert_eq!(language_from(Some("vi_VN.UTF-8")), "vi");
-        assert_eq!(language_from(Some("en-US")), "en");
-        assert_eq!(language_from(Some("FR.UTF-8")), "fr");
+    fn the_callers_language_wins_over_the_environment() {
+        assert_eq!(resolve_language(Some("vi"), Some("en_US.UTF-8")), "vi");
     }
 
     #[test]
-    fn falls_back_to_english_when_nothing_usable() {
-        assert_eq!(language_from(None), "en");
-        assert_eq!(language_from(Some("")), "en");
-        assert_eq!(language_from(Some("C")), "en");
-        assert_eq!(language_from(Some("POSIX")), "en");
+    fn the_callers_language_is_parsed_the_same_way_as_the_environment() {
+        assert_eq!(resolve_language(Some("vi-VN"), None), "vi");
+    }
+
+    #[test]
+    fn an_absent_or_unusable_caller_falls_back_to_the_environment() {
+        assert_eq!(resolve_language(None, Some("fr.UTF-8")), "fr");
+        assert_eq!(resolve_language(Some(""), Some("fr.UTF-8")), "fr");
+        assert_eq!(resolve_language(Some("123"), Some("fr.UTF-8")), "fr");
+    }
+
+    #[test]
+    fn neither_side_usable_falls_back_to_english() {
+        assert_eq!(resolve_language(None, None), "en");
+        assert_eq!(resolve_language(Some("C"), Some("POSIX")), "en");
     }
 }
