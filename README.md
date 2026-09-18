@@ -251,11 +251,14 @@ received but whose response was lost is simply de-duplicated on resend.
 ### Opting out
 
 `setOptOut(true)` takes effect before the call returns: capture stops at
-once, the queue on disk (or in `localStorage`) is deleted, and a flush
+once, the choice is saved (and persists across launches), and a flush
 already in flight stops after the batch currently on the wire — at most
-one batch sent before the opt-out can still land. The choice persists
-across launches. `setOptOut(false)` opts back in; nothing already deleted
-is replayed.
+one batch sent before the opt-out can still land. The queued events
+themselves are deleted at once on the web; under Tauri, the worker clears
+them right after — once any request already in flight has finished — or,
+if the app quits before that, at the next launch. Either way, nothing
+still queued at the moment of opting out is ever sent. `setOptOut(false)`
+opts back in; nothing already deleted is replayed.
 
 ### Event names
 
