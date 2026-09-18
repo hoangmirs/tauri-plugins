@@ -75,6 +75,11 @@ const OPT_OUT_KEY = "posthog-plugin:opt-out";
 const INITIAL_BACKOFF_MS = 30_000;
 const MAX_BACKOFF_MS = 600_000;
 
+/** The default request timeout — mirrors the Rust side's `UreqPost`'s
+ * `REQUEST_TIMEOUT`, so a POST that never answers is bounded here the same
+ * way it is there. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
 /** Set by {@link init}; `undefined` means `track`/`flush` are no-ops, the
  * state a page that never called `init` (or isn't running under Tauri, and
  * imported this module only transitively) is in. */
@@ -108,6 +113,12 @@ let backoffWaitingSince: { at: number; wait: number } | undefined;
  * `fetch` is ever in flight and a later attempt always sees whatever an
  * earlier one left in the queue, rather than racing it. */
 let flushChain: Promise<void> = Promise.resolve();
+
+/** How long a single POST is allowed to run before it's treated as a
+ * failure. Swappable in tests (see {@link setRequestTimeoutMsForTests}) so
+ * a stalled-request test needs no real 10s wait; real code never touches
+ * this. */
+let requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS;
 
 /** How much longer, in milliseconds, a retry must wait — zero once the
  * last recorded wait has elapsed, or when there has been no failure since
@@ -246,6 +257,55 @@ function mergedProperties(distinctId: string, callerProperties: Record<string, u
   return merged;
 }
 
+/** `clearInterval`/`clearTimeout` both keep Node alive until the handle
+ * fires; `unref`'d, they don't. Browsers have no `unref`, so this is a
+ * no-op there. */
+function unref(handle: unknown): void {
+  const fn = (handle as { unref?: () => void } | undefined)?.unref;
+  if (typeof fn === "function") fn.call(handle);
+}
+
+/** Runs `fetch(url, init)`, but treats it as failed once
+ * {@link requestTimeoutMs} passes — mirrors the Rust side's `UreqPost`,
+ * which bounds every request the same way, so a chained flush (see
+ * {@link performFlush}) can never be stuck behind a POST that neither
+ * resolves nor rejects. Prefers `AbortController`, which actually cancels
+ * the underlying request; a host with no `AbortController` instead races
+ * the same timeout against the raw `fetch` and just ignores whatever it
+ * eventually does. Either way this rejects on a timeout, exactly like a
+ * network failure, which `runFlush` already treats as one. */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  if (typeof AbortController === "function") {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    unref(timer);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // No AbortController: the request itself cannot be cancelled, so this
+  // races the timeout against it instead — the loser's outcome (a late
+  // response, or a rejection after this has already timed out) is simply
+  // never observed by `runFlush`.
+  return new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("request timed out")), requestTimeoutMs);
+    unref(timer);
+    fetch(url, init).then(
+      (response) => {
+        clearTimeout(timer);
+        resolve(response);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 /** Registers the `pagehide` flush, once, only where `window.addEventListener`
  * exists (never in Node, where there is no such event to fire). */
 function registerPagehide(): void {
@@ -268,8 +328,7 @@ function ensureTimer(): void {
   timer = setInterval(() => {
     void performFlush(false);
   }, FLUSH_EVERY_MS);
-  const unref = (timer as unknown as { unref?: () => void }).unref;
-  if (typeof unref === "function") unref.call(timer);
+  unref(timer);
 }
 
 /**
@@ -333,13 +392,16 @@ async function runFlush(keepalive: boolean): Promise<void> {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
         keepalive,
       });
     } catch {
+      // a throw here is a transport failure, a non-2xx `ureq`-style
+      // rejection never happens on the web (fetch resolves on any status),
+      // or — the case this exists for — a request that timed out
       backoffFailed();
       return;
     }
@@ -405,14 +467,21 @@ export function setClockForTests(fn: () => number): void {
   clock = fn;
 }
 
+/** Test-only: overrides how long a single POST is allowed to run before
+ * it's treated as a failure, so a stalled-request test needs no real 10s
+ * wait. Not exported from the package's public entry. */
+export function setRequestTimeoutMsForTests(ms: number): void {
+  requestTimeoutMs = ms;
+}
+
 /** Test-only: waits for every currently chained flush attempt to finish
  * (so none of it leaks into whatever the next test does), then clears the
  * timer, the `pagehide` registration flag, the in-memory config, the
- * backoff, and the clock override — the state a freshly loaded page would
- * be in. Not exported from the package's public entry (`index.ts`) — tests
- * import this module directly, and must `await` this (a pending flush
- * attempt is real async work, not something a synchronous reset can
- * discard). */
+ * backoff, the clock override, and the request-timeout override — the
+ * state a freshly loaded page would be in. Not exported from the
+ * package's public entry (`index.ts`) — tests import this module
+ * directly, and must `await` this (a pending flush attempt is real async
+ * work, not something a synchronous reset can discard). */
 export async function resetForTests(): Promise<void> {
   await flushChain.catch(() => {
     // `runFlush` never rejects, but this drain must not throw either way
@@ -427,4 +496,5 @@ export async function resetForTests(): Promise<void> {
   backoffNext = INITIAL_BACKOFF_MS;
   backoffWaitingSince = undefined;
   flushChain = Promise.resolve();
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS;
 }

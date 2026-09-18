@@ -744,6 +744,74 @@ test("a failed flush backs off 30s, doubling, capped at 600s; a success resets i
   }
 });
 
+test("a fetch that never settles times out, backs off, and a later flush after the backoff still sends", async () => {
+  const store = await setupWeb();
+  let clockNow = 0;
+  web.setClockForTests(() => clockNow);
+  // Small, injected — not the real 10s default — so this test runs fast.
+  web.setRequestTimeoutMsForTests(20);
+  let succeed = false;
+  let callCount = 0;
+  (globalThis as Globals).fetch = (_url: string, fetchInit?: RequestInit) => {
+    callCount += 1;
+    if (succeed) return Promise.resolve(ok());
+    // Never settles on its own — an unresponsive server — but, like a real
+    // `fetch`, rejects once its `signal` aborts, so this double actually
+    // exercises the timeout instead of just hanging regardless of it.
+    return new Promise<Response>((_resolve, reject) => {
+      fetchInit?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    });
+  };
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+
+    // this must resolve on its own once the 20ms request timeout fires —
+    // not hang forever, and not reject
+    await assert.doesNotReject(flush());
+    assert.equal(callCount, 1);
+    assert.equal(queueOf(store).length, 1, "the event stays queued after the timeout");
+
+    // the timeout was treated as a failure: backoff engaged, so an
+    // immediate retry makes no new request
+    await flush();
+    assert.equal(callCount, 1, "still backing off, no new request");
+
+    // proves the chain isn't stuck behind the stalled request: once the
+    // backoff elapses, a later flush still runs, and can still succeed
+    clockNow += 30_000;
+    succeed = true;
+    await flush();
+    assert.equal(callCount, 2);
+    assert.equal(queueOf(store).length, 0, "the later flush actually sent the event");
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("without AbortController, a never-settling fetch still times out via the fallback race", async () => {
+  const store = await setupWeb();
+  const originalAbortController = (globalThis as Globals).AbortController;
+  delete (globalThis as Globals).AbortController;
+  web.setRequestTimeoutMsForTests(20);
+  setupFetch(() => new Promise<Response>(() => {})); // never settles
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    await assert.doesNotReject(flush());
+    assert.equal(queueOf(store).length, 1, "the event stays queued after the fallback timeout");
+  } finally {
+    if (originalAbortController !== undefined) {
+      (globalThis as Globals).AbortController = originalAbortController;
+    }
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // $lib_version
 // ---------------------------------------------------------------------------
