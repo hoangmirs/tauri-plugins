@@ -14,6 +14,23 @@ const LIB_NAME: &str = "tauri-plugin-posthog";
 /// `PostHog`-imposed limit, just a sanity bound against accidental payloads.
 const MAX_EVENT_NAME_LEN: usize = 200;
 
+/// Event names `PostHog` treats as tying an install to a person.
+const IDENTITY_EVENTS: [&str; 4] = [
+    "$identify",
+    "$create_alias",
+    "$merge_dangerously",
+    "$groupidentify",
+];
+
+/// Properties `PostHog` reads as person or group data, whatever the event.
+const IDENTITY_PROPERTIES: [&str; 5] = [
+    "$set",
+    "$set_once",
+    "$unset",
+    "$groups",
+    "$anon_distinct_id",
+];
+
 /// A single analytics event, queued on disk until it is flushed. Carries
 /// its own identity (`uuid`) and the moment it happened (`timestamp`) so
 /// that queuing and retrying never changes either.
@@ -32,22 +49,20 @@ impl Event {
     /// time. Returns `None` when `name`, trimmed, is empty or longer than
     /// `MAX_EVENT_NAME_LEN` — callers pass event names as literals or
     /// simple identifiers, never free text, so this is a sanity check, not
-    /// validation of user input.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the system clock cannot be formatted as RFC 3339, which
-    /// does not happen for any real wall-clock time.
+    /// validation of user input — or is one of `PostHog`'s identity events,
+    /// which would undo the anonymity; or, which no real clock does, when
+    /// the time cannot be formatted.
     #[must_use]
     pub fn new(name: &str, properties: Map<String, Value>) -> Option<Event> {
         let name = name.trim();
-        if name.is_empty() || name.chars().count() > MAX_EVENT_NAME_LEN {
+        if name.is_empty()
+            || name.chars().count() > MAX_EVENT_NAME_LEN
+            || IDENTITY_EVENTS.contains(&name)
+        {
             return None;
         }
 
-        let timestamp = OffsetDateTime::now_utc()
-            .format(&Rfc3339)
-            .expect("the current time always formats as RFC 3339");
+        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).ok()?;
 
         Some(Event {
             uuid: Uuid::new_v4().to_string(),
@@ -98,8 +113,8 @@ pub fn batch_body(api_key: &str, base: &Base, events: &[Event]) -> Value {
 
 /// Merges an event's properties onto `base`'s the way `batch_body` promises:
 /// base properties first, then the caller's own (which may shadow most of
-/// them), then `distinct_id` and `$process_person_profile` re-asserted so
-/// neither can be overridden.
+/// them) less any that would build a person, then `distinct_id` and
+/// `$process_person_profile` re-asserted so neither can be overridden.
 pub(crate) fn merged_properties(base: &Base, event: &Event) -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert("distinct_id".to_string(), base.distinct_id.clone().into());
@@ -111,7 +126,9 @@ pub(crate) fn merged_properties(base: &Base, event: &Event) -> Map<String, Value
     properties.insert("$process_person_profile".to_string(), false.into());
 
     for (key, value) in &event.properties {
-        properties.insert(key.clone(), value.clone());
+        if !IDENTITY_PROPERTIES.contains(&key.as_str()) {
+            properties.insert(key.clone(), value.clone());
+        }
     }
 
     properties.insert("distinct_id".to_string(), base.distinct_id.clone().into());
@@ -153,6 +170,46 @@ mod tests {
         assert!(Event::new("   ", Map::new()).is_none());
         assert!(Event::new(&"x".repeat(201), Map::new()).is_none());
         assert!(Event::new(&"x".repeat(200), Map::new()).is_some());
+    }
+
+    #[test]
+    fn the_names_that_would_identify_a_person_are_refused() {
+        for name in [
+            "$identify",
+            "$create_alias",
+            "$merge_dangerously",
+            "$groupidentify",
+        ] {
+            assert!(Event::new(name, Map::new()).is_none(), "{name}");
+        }
+        assert!(Event::new("$pageview", Map::new()).is_some());
+    }
+
+    #[test]
+    fn the_properties_that_would_build_a_person_are_stripped() {
+        let mut props = Map::new();
+        for key in [
+            "$set",
+            "$set_once",
+            "$unset",
+            "$groups",
+            "$anon_distinct_id",
+        ] {
+            props.insert(key.into(), serde_json::json!({ "name": "someone" }));
+        }
+        props.insert("game".into(), "caro".into());
+        let body = batch_body("k", &base(), &[Event::new("x", props).unwrap()]);
+        let p = body["batch"][0]["properties"].as_object().unwrap();
+        for key in [
+            "$set",
+            "$set_once",
+            "$unset",
+            "$groups",
+            "$anon_distinct_id",
+        ] {
+            assert!(!p.contains_key(key), "{key}");
+        }
+        assert_eq!(p["game"], "caro");
     }
 
     #[test]

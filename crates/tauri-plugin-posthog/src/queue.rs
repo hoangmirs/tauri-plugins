@@ -6,7 +6,7 @@
 //! half-written one. [`Queue::push`] appends directly, then evicts.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
 use crate::event::Event;
@@ -74,8 +74,14 @@ impl Queue {
 
         let mut file = OpenOptions::new()
             .create(true)
+            .read(true)
             .append(true)
             .open(&self.path)?;
+        // A crash mid-append can leave a torn last line; this one must not
+        // be glued onto it.
+        if ends_torn(&mut file)? {
+            file.write_all(b"\n")?;
+        }
         file.write_all(line.as_bytes())?;
         drop(file);
 
@@ -126,17 +132,17 @@ impl Queue {
     }
 
     /// Reads every line of the file, keeping the ones that parse as an
-    /// `Event` and silently skipping the ones that don't. A missing file
-    /// reads as empty.
+    /// `Event` and silently skipping the ones that don't — as bytes, so a
+    /// line torn inside a multi-byte character is skipped like any other
+    /// rather than ending the read. A missing file reads as empty.
     fn readable_events(&self) -> Vec<Event> {
-        let Ok(file) = File::open(&self.path) else {
+        let Ok(bytes) = fs::read(&self.path) else {
             return Vec::new();
         };
 
-        BufReader::new(file)
-            .lines()
-            .map_while(Result::ok)
-            .filter_map(|line| serde_json::from_str(&line).ok())
+        bytes
+            .split(|&b| b == b'\n')
+            .filter_map(|line| serde_json::from_slice(line).ok())
             .collect()
     }
 
@@ -191,6 +197,17 @@ impl Queue {
 
         self.rewrite(&events[keep_from..])
     }
+}
+
+/// Whether `file` is non-empty and its last byte is not a newline.
+fn ends_torn(file: &mut File) -> std::io::Result<bool> {
+    if file.metadata()?.len() == 0 {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8];
+    file.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
 }
 
 /// Serializes `event` as a single JSON line, newline included.
@@ -334,6 +351,47 @@ mod tests {
 
         queue.drop_front(1).unwrap();
         assert_eq!(uuids(&queue.peek(10)), vec![second.uuid.clone()]);
+    }
+
+    #[test]
+    fn a_torn_multi_byte_line_hides_nothing_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("queue.jsonl");
+
+        let first = event("first");
+        let second = event("second");
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(file, "{}", serde_json::to_string(&first).unwrap()).unwrap();
+        // "é" cut after its first byte: not UTF-8, let alone JSON.
+        file.write_all(b"{\"event\":\"caf\xC3\n").unwrap();
+        writeln!(file, "{}", serde_json::to_string(&second).unwrap()).unwrap();
+        drop(file);
+
+        let queue = Queue::open(path, Limits::default());
+        assert_eq!(
+            uuids(&queue.peek(10)),
+            vec![first.uuid.clone(), second.uuid.clone()]
+        );
+    }
+
+    #[test]
+    fn a_push_after_a_torn_last_line_starts_a_line_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("queue.jsonl");
+
+        let first = event("first");
+        let second = event("second");
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(file, "{}", serde_json::to_string(&first).unwrap()).unwrap();
+        file.write_all(b"{\"event\":\"caf\xC3").unwrap();
+        drop(file);
+
+        let queue = Queue::open(path, Limits::default());
+        queue.push(&second).unwrap();
+        assert_eq!(
+            uuids(&queue.peek(10)),
+            vec![first.uuid.clone(), second.uuid.clone()]
+        );
     }
 
     #[test]
