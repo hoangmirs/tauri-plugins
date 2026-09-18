@@ -26,7 +26,8 @@ an older build is locked out with no way to update.
   "minVersion": "1.2.0",
   "latestVersion": "1.4.0",
   "message": { "en": "A new version is available.", "vi": "Đã có bản cập nhật." },
-  "url": { "ios": null, "android": null, "macos": "https://example.com/download" }
+  "url": { "ios": null, "android": null, "macos": "https://example.com/download" },
+  "platforms": { "ios": { "minVersion": "1.1.0" } }
 }
 ```
 
@@ -36,10 +37,17 @@ an older build is locked out with no way to update.
 - `message` — a map of language code to the text shown to the player. The
   command picks the entry for the resolved language, falling back to `en`.
   Keys are two-letter language codes only (`en`, `vi`, `pt`): the resolved
-  language is cut down to its first two letters, so `pt-BR` and `zh-Hant`
-  look up `pt` and `zh`, and a three-letter code never matches.
+  language is the part before the first `-`, `_` or `.`, and must be two
+  letters, so `pt-BR` and `zh-Hant` look up `pt` and `zh`, and a
+  three-letter code such as `fil` is never used.
 - `url` — a map of platform (`ios`, `android`, `macos`, `windows`, `linux`)
   to a download link, or `null` when there isn't one for that platform.
+- `platforms` — optional. A platform's own `minVersion` and/or
+  `latestVersion`, for when the stores release on different days: raise the
+  top level once Android has 1.3.0, and hold iOS back until its review
+  passes. A field a platform leaves out comes from the top level, and
+  `latestVersion` in the answer is that platform's own. In the example
+  above, iOS forces below 1.1.0 while everything else forces below 1.2.0.
 - Any other field in the document is ignored, so an app can keep its own
   keys in the same file without the plugin tripping over them.
 
@@ -108,7 +116,9 @@ the Rust side fall back to the OS locale environment — `LC_ALL`, then
 `timeoutMs` (default 10 000), it resolves to the open gate. Keep
 `timeoutMs` above the Rust `.timeout(...)` (default 5 seconds), so a slow
 network is answered by the plugin, and this only fires when the command
-itself never answers.
+itself never answers. A `timeoutMs` that isn't a positive, finite number of
+milliseconds a timer can hold (0, a negative, `NaN`, above 2³¹−1) means the
+default, since a timer that fires at once would switch the gate off.
 
 **Confirm the gate is live.** A missing `update-gate:default` capability,
 or a plugin that was never registered, makes `checkUpdate()` quietly
@@ -123,6 +133,11 @@ The command signature is `Result<Gate, String>` because Tauri requires
 `Result` of an async command that borrows managed state — it never
 actually returns `Err`; every failure is folded into the open gate before
 `check` returns.
+
+A panic in the network stack is caught and answered as the open gate too —
+but only when the app is built with `panic = "unwind"`, Rust's default. An
+app built with `panic = "abort"` crashes on such a panic instead of failing
+open.
 
 ## `tauri-plugin-posthog` (planned)
 

@@ -12,6 +12,7 @@ type Globals = Record<string, unknown>;
 function teardownTauri(): void {
   delete (globalThis as Globals).isTauri;
   delete (globalThis as Globals).window;
+  delete (globalThis as Globals).__TAURI_INTERNALS__;
 }
 
 test("a browser with no Tauri runtime never gates", async () => {
@@ -146,6 +147,27 @@ test("an answer that beats the timeout is the one returned", async () => {
   try {
     const { checkUpdate } = await import("./index.ts?7");
     assert.equal((await checkUpdate("vi", { timeoutMs: 1_000 })).state, "forced");
+  } finally {
+    teardownTauri();
+  }
+});
+
+test("a timeout that is no real duration waits the default instead of opening at once", async () => {
+  (globalThis as Globals).isTauri = true;
+  (globalThis as Globals).window = globalThis;
+  (globalThis as Globals).__TAURI_INTERNALS__ = {
+    // Slower than a timer that fires "at once", far quicker than the default.
+    invoke: () =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ state: "forced", latestVersion: null, message: null, url: null }), 50),
+      ),
+  };
+  try {
+    const { checkUpdate } = await import("./index.ts?9");
+    // setTimeout fires almost at once for all of these: 2 ** 31 overflows it.
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 31]) {
+      assert.equal((await checkUpdate("vi", { timeoutMs })).state, "forced", `timeoutMs ${timeoutMs}`);
+    }
   } finally {
     teardownTauri();
   }

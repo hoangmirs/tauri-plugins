@@ -19,9 +19,21 @@ const OPEN: Gate = { state: "ok", latestVersion: null, message: null, url: null 
  * the command itself never answers. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** The longest delay `setTimeout` keeps. Anything above it overflows and
+ * fires at once, as zero, a negative or NaN does. */
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+/** A timer that fired at once would answer the open gate before the command
+ * could, turning the gate off without a word. So a duration that is not a
+ * real one falls back to the default. */
+function timeoutOf(ms: number | undefined): number {
+  return ms !== undefined && Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMEOUT_MS ? ms : DEFAULT_TIMEOUT_MS;
+}
+
 export type CheckOptions = {
   /** How long to wait for the command, in milliseconds, before answering
-   * the open gate. Keep it above the plugin's Rust `timeout`. */
+   * the open gate. Keep it above the plugin's Rust `timeout`. A value that is
+   * not a positive, finite duration a timer can hold means the default. */
   timeoutMs?: number;
 };
 
@@ -50,7 +62,7 @@ export async function checkUpdate(lang?: string, options: CheckOptions = {}): Pr
     const resolvedLang = lang ?? browserLanguage();
     const args = resolvedLang === undefined ? {} : { lang: resolvedLang };
     const timedOut = new Promise<Gate>((resolve) => {
-      timer = setTimeout(() => resolve(OPEN), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      timer = setTimeout(() => resolve(OPEN), timeoutOf(options.timeoutMs));
     });
     return await Promise.race([invoke<Gate>("plugin:update-gate|check", args), timedOut]);
   } catch {
