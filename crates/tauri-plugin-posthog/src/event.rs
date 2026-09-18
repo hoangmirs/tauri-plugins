@@ -69,11 +69,13 @@ pub struct Base {
 }
 
 /// Builds a `PostHog` `/batch` request body for `events`, keyed to `api_key`.
-/// Each event's properties are `base`'s properties, then the caller's own,
+/// Each event's properties are `base`'s properties, then the event's own,
 /// then `distinct_id` and `$process_person_profile: false` re-asserted last
 /// — so a caller can add its own properties, or even shadow most of the
 /// plugin's, but never unmask the anonymous install or opt an event into
-/// person profiles.
+/// person profiles. The worker already merged `base` in at capture, so
+/// the capture-time values win here; merging again only fills in events
+/// queued before that.
 #[must_use]
 pub fn batch_body(api_key: &str, base: &Base, events: &[Event]) -> Value {
     let batch: Vec<Value> = events
@@ -98,7 +100,7 @@ pub fn batch_body(api_key: &str, base: &Base, events: &[Event]) -> Value {
 /// base properties first, then the caller's own (which may shadow most of
 /// them), then `distinct_id` and `$process_person_profile` re-asserted so
 /// neither can be overridden.
-fn merged_properties(base: &Base, event: &Event) -> Map<String, Value> {
+pub(crate) fn merged_properties(base: &Base, event: &Event) -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert("distinct_id".to_string(), base.distinct_id.clone().into());
     properties.insert("$lib".to_string(), LIB_NAME.into());

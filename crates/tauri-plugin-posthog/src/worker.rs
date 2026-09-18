@@ -129,7 +129,10 @@ pub(crate) struct Worker {
     post: Arc<dyn Post>,
     host: Arc<str>,
     api_key: Arc<str>,
-    base: Arc<Base>,
+    app_version: String,
+    /// Made at the first event that needs it, so an install that never
+    /// sends one — an opted-out one — never gets an id on disk.
+    base: Option<Arc<Base>>,
     backoff: Backoff,
     flush_at: usize,
     opt_out: Arc<OptOut>,
@@ -139,7 +142,7 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    /// Reads the opt-out and the install id from `dir`. An opt-out found on
+    /// Reads the opt-out from `dir`. An opt-out found on
     /// disk, or a clear still owed for one since undone, clears the queue,
     /// so nothing queued before an opt-out is ever sent.
     pub(crate) fn new(settings: Settings, dir: Option<PathBuf>, post: Arc<dyn Post>) -> Self {
@@ -154,23 +157,14 @@ impl Worker {
             || store
                 .as_ref()
                 .is_some_and(|store| crate::identity::clear_pending(&store.dir));
-        let distinct_id = store
-            .as_ref()
-            .map(|store| crate::identity::install_id(&store.dir))
-            .unwrap_or_default();
 
         let mut worker = Worker {
             store,
             post,
             host: settings.host.into(),
             api_key: settings.api_key.into(),
-            base: Arc::new(Base {
-                distinct_id,
-                lib_version: env!("CARGO_PKG_VERSION"),
-                app_version: settings.app_version,
-                os: OS,
-                platform: PLATFORM,
-            }),
+            app_version: settings.app_version,
+            base: None,
             backoff: Backoff::new(),
             flush_at: settings.flush_at,
             opt_out: Arc::new(OptOut::new(opted_out)),
@@ -196,7 +190,7 @@ impl Worker {
     pub(crate) async fn handle(&mut self, msg: Msg) {
         self.catch_up();
         match msg {
-            Msg::Capture(event, epoch) => self.capture(&event, epoch).await,
+            Msg::Capture(event, epoch) => self.capture(event, epoch).await,
             Msg::Flush(done) => {
                 self.try_flush().await;
                 if let Some(done) = done {
@@ -229,17 +223,39 @@ impl Worker {
         }
     }
 
+    /// The install and the app, resolving the install id on first use.
+    /// `None` without a data directory, where nothing is queued anyway.
+    fn base(&mut self) -> Option<Arc<Base>> {
+        if self.base.is_none() {
+            let store = self.store.as_ref()?;
+            self.base = Some(Arc::new(Base {
+                distinct_id: crate::identity::install_id(&store.dir),
+                lib_version: env!("CARGO_PKG_VERSION"),
+                app_version: self.app_version.clone(),
+                os: OS,
+                platform: PLATFORM,
+            }));
+        }
+        self.base.clone()
+    }
+
     /// Queues `event` unless the install is opted out, or it was captured
-    /// before an opt-out the queue has since been cleared for.
-    async fn capture(&mut self, event: &Event, epoch: u64) {
+    /// before an opt-out the queue has since been cleared for. The plugin's
+    /// own properties go in now, so an event queued by one version of the
+    /// app and sent by the next still says which one it came from.
+    async fn capture(&mut self, mut event: Event, epoch: u64) {
         self.catch_up();
         if self.opt_out.is_set() || epoch != self.acted {
             return;
         }
+        let Some(base) = self.base() else {
+            return;
+        };
+        event.properties = crate::event::merged_properties(&base, &event);
         let Some(store) = &self.store else {
             return;
         };
-        match store.queue.push(event) {
+        match store.queue.push(&event) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
                 log::warn!(
@@ -307,12 +323,14 @@ impl Worker {
         if store.queue.is_empty() || !self.backoff.ready_in().is_zero() {
             return;
         }
-
         let queue = Arc::clone(&store.queue);
+        let Some(base) = self.base() else {
+            return;
+        };
+
         let post = Arc::clone(&self.post);
         let host = Arc::clone(&self.host);
         let api_key = Arc::clone(&self.api_key);
-        let base = Arc::clone(&self.base);
         let opt_out = Arc::clone(&self.opt_out);
         let start = self.acted;
         let sent = tauri::async_runtime::spawn_blocking(move || {
@@ -646,6 +664,41 @@ mod tests {
         );
         assert_eq!(props["$app_version"], "1.2.3");
         assert_eq!(props["$lib_version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn an_event_carries_the_app_version_that_captured_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let post = FakePost::scripted(vec![]);
+        let post_dyn: Arc<dyn Post> = post.clone();
+        let mut old = settings();
+        old.app_version = "1.0.0".to_string();
+        let mut worker = Worker::new(old, Some(dir.path().to_path_buf()), post_dyn.clone());
+        capture(&mut worker, 1).await;
+        drop(worker);
+
+        let mut new = settings();
+        new.app_version = "1.1.0".to_string();
+        let mut worker = Worker::new(new, Some(dir.path().to_path_buf()), post_dyn);
+        worker.handle(Msg::Flush(None)).await;
+
+        let body = post.bodies.lock().unwrap()[0].clone();
+        assert_eq!(body["batch"][0]["properties"]["$app_version"], "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn an_opted_out_install_never_gets_an_id() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::identity::set_opted_out(dir.path(), true).unwrap();
+        let post = FakePost::scripted(vec![]);
+        let (mut worker, handle, mut rx) = worker(dir.path(), &post);
+
+        handle.capture("a", Map::new());
+        capture(&mut worker, 1).await;
+        pump(&mut worker, &mut rx).await;
+        worker.handle(Msg::Flush(None)).await;
+
+        assert!(!dir.path().join("posthog-id").exists());
     }
 
     #[tokio::test]
