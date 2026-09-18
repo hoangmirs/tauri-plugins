@@ -1,0 +1,28 @@
+[package]
+name = "tauri-plugin-update-gate"
+description = "Tauri plugin that reads a JSON document over HTTP and tells an app whether the installed copy is too old to run"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+links = "tauri-plugin-update-gate"
+
+[dependencies]
+async-trait.workspace = true
+log.workspace = true
+reqwest.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "=2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
