@@ -3,6 +3,7 @@
 //! failed send before trying again.
 
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::event::{batch_body, Base, Event};
@@ -96,7 +97,10 @@ pub fn batch_url(host: &str) -> String {
 }
 
 /// Sends everything currently in `queue`, in batches of at most [`BATCH`]
-/// events, to `{host}/batch/` (via `batch_url`). Stops and returns `Err` on
+/// events, to `{host}/batch/` (via `batch_url`), checking `stop` before
+/// each batch: once it is set (the install opted out mid-flush) no further
+/// batch goes out, and the events sent so far are returned as a success —
+/// only the one batch already on the wire can still land. Stops and returns `Err` on
 /// the first failed batch, leaving it and everything after it queued; each
 /// batch that posted successfully is removed from the queue before the next
 /// one is sent. Returns the total number of events sent on success.
@@ -113,11 +117,15 @@ pub fn flush(
     host: &str,
     api_key: &str,
     base: &Base,
+    stop: &AtomicBool,
 ) -> Result<usize, String> {
     let url = batch_url(host);
     let mut sent = 0usize;
 
     loop {
+        if stop.load(Ordering::SeqCst) {
+            return Ok(sent);
+        }
         let batch: Vec<Event> = queue.peek(BATCH);
         if batch.is_empty() {
             return Ok(sent);
@@ -207,7 +215,8 @@ mod tests {
     use crate::event::Base;
     use crate::queue::{Limits, Queue};
     use serde_json::{Map, Value};
-    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     fn base() -> Base {
@@ -273,7 +282,15 @@ mod tests {
         push_n(&queue, 250);
 
         let post = FakePost::new(vec![Ok(()), Ok(()), Ok(())]);
-        let sent = flush(&queue, &post, "https://us.i.posthog.com", "k", &base()).unwrap();
+        let sent = flush(
+            &queue,
+            &post,
+            "https://us.i.posthog.com",
+            "k",
+            &base(),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
 
         assert_eq!(sent, 250);
         assert_eq!(post.batch_sizes(), vec![100, 100, 50]);
@@ -287,11 +304,60 @@ mod tests {
         push_n(&queue, 250);
 
         let post = FakePost::new(vec![Ok(()), Err("boom".to_string())]);
-        let err = flush(&queue, &post, "https://us.i.posthog.com", "k", &base()).unwrap_err();
+        let err = flush(
+            &queue,
+            &post,
+            "https://us.i.posthog.com",
+            "k",
+            &base(),
+            &AtomicBool::new(false),
+        )
+        .unwrap_err();
 
         assert_eq!(err, "boom");
         assert_eq!(queue.len(), 150);
         assert_eq!(post.batch_sizes(), vec![100, 100]);
+    }
+
+    /// Raises `stop` from inside its first post, the way an opt-out lands
+    /// while a batch is on the wire.
+    struct OptOutDuringPost {
+        stop: Arc<AtomicBool>,
+        posts: Mutex<usize>,
+    }
+
+    impl Post for OptOutDuringPost {
+        fn post(&self, _url: &str, _body: &Value) -> Result<(), String> {
+            *self.posts.lock().unwrap() += 1;
+            self.stop.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_stop_raised_during_a_batch_sends_no_further_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let queue = Queue::open(dir.path().join("queue.jsonl"), Limits::default());
+        push_n(&queue, 250);
+        let stop = Arc::new(AtomicBool::new(false));
+        let post = OptOutDuringPost {
+            stop: Arc::clone(&stop),
+            posts: Mutex::new(0),
+        };
+
+        let sent = flush(
+            &queue,
+            &post,
+            "https://us.i.posthog.com",
+            "k",
+            &base(),
+            &stop,
+        )
+        .unwrap();
+
+        assert_eq!(sent, 100);
+        assert_eq!(*post.posts.lock().unwrap(), 1);
+        assert_eq!(queue.len(), 150, "flush leaves clearing to the worker");
     }
 
     #[test]
@@ -300,7 +366,15 @@ mod tests {
         let queue = Queue::open(dir.path().join("queue.jsonl"), Limits::default());
 
         let post = FakePost::new(vec![]);
-        let sent = flush(&queue, &post, "https://us.i.posthog.com", "k", &base()).unwrap();
+        let sent = flush(
+            &queue,
+            &post,
+            "https://us.i.posthog.com",
+            "k",
+            &base(),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
 
         assert_eq!(sent, 0);
         assert!(post.bodies.lock().unwrap().is_empty());

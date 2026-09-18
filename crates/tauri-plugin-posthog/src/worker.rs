@@ -1,12 +1,16 @@
-//! The one task that owns the queue. Commands never touch the queue file:
-//! they send a `Msg` over a channel, and this worker handles each one in
-//! turn, so a capture, a flush, and an opt-out can never interleave on
-//! disk.
+//! The one task that owns the queue, and the `Handle` commands use to
+//! reach it. Commands never touch the queue file: they send a `Msg` over a
+//! channel, and the worker handles each one in turn, so a capture, a
+//! flush, and a clear can never interleave on disk. The opt-out is the one
+//! thing both sides hold, as a shared flag, because it has to take effect
+//! the moment the command returns, not when the worker gets round to it.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use serde_json::{Map, Value};
 use tauri::async_runtime::{Receiver, Sender};
 use tokio::sync::mpsc::error::TrySendError;
 
@@ -20,8 +24,10 @@ pub(crate) enum Msg {
     /// Flush now if the backoff allows; `done` hears back once the attempt
     /// (or the decision not to make one) is over.
     Flush(Option<std::sync::mpsc::Sender<()>>),
-    SetOptOut(bool),
-    IsOptedOut(tokio::sync::oneshot::Sender<bool>),
+    /// The opt-out flag changed. The flag, not the message, is the truth:
+    /// the worker clears the queue if the install is opted out by the time
+    /// it looks, so toggles that arrive out of order still end right.
+    OptOutChanged,
 }
 
 /// Everything the worker needs that comes from `Config` and the app.
@@ -38,6 +44,9 @@ const QUEUE_FILE: &str = "posthog-queue.jsonl";
 
 /// How often `flush_before_exit` looks again at a full channel.
 const EXIT_RETRY: Duration = Duration::from_millis(10);
+
+/// The longest event name a log line will carry.
+const LOGGED_NAME_LEN: usize = 64;
 
 /// This build's OS, the way `PostHog` spells it in `$os`.
 const OS: &str = if cfg!(target_os = "ios") {
@@ -85,7 +94,7 @@ pub(crate) struct Worker {
     base: Arc<Base>,
     backoff: Backoff,
     flush_at: usize,
-    opted_out: bool,
+    opted_out: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -120,12 +129,21 @@ impl Worker {
             }),
             backoff: Backoff::new(),
             flush_at: settings.flush_at,
-            opted_out,
+            opted_out: Arc::new(AtomicBool::new(opted_out)),
         };
-        if worker.opted_out {
-            worker.clear_queue();
-        }
+        worker.clear_if_opted_out();
         worker
+    }
+
+    /// A `Handle` sharing this worker's opt-out flag, sending on `tx`.
+    pub(crate) fn handle_for(&self, tx: Sender<Msg>) -> Handle {
+        Handle {
+            tx,
+            dir: self.store.as_ref().map(|store| store.dir.clone()),
+            opted_out: Arc::clone(&self.opted_out),
+            toggling: Mutex::new(()),
+            warned: AtomicBool::new(false),
+        }
     }
 
     /// Handles one message to completion, flush included, before the next
@@ -139,10 +157,7 @@ impl Worker {
                     let _ = done.send(());
                 }
             }
-            Msg::SetOptOut(out) => self.set_opt_out(out),
-            Msg::IsOptedOut(reply) => {
-                let _ = reply.send(self.opted_out);
-            }
+            Msg::OptOutChanged => self.clear_if_opted_out(),
         }
     }
 
@@ -165,8 +180,13 @@ impl Worker {
         }
     }
 
+    fn is_opted_out(&self) -> bool {
+        self.opted_out.load(Ordering::SeqCst)
+    }
+
     async fn capture(&mut self, event: &Event) {
-        if self.opted_out {
+        // A capture sent just before an opt-out is still dropped here.
+        if self.is_opted_out() {
             return;
         }
         let Some(store) = &self.store else {
@@ -191,23 +211,14 @@ impl Worker {
         }
     }
 
-    /// Persists first, so an opt-out survives even if the clear fails; the
-    /// next start clears whatever this one could not.
-    fn set_opt_out(&mut self, out: bool) {
-        self.opted_out = out;
-        let Some(store) = &self.store else {
+    fn clear_if_opted_out(&self) {
+        if !self.is_opted_out() {
             return;
-        };
-        if let Err(e) = crate::identity::set_opted_out(&store.dir, out) {
-            log::warn!("could not save the analytics opt-out: {e}");
         }
-        if out {
-            self.clear_queue();
-        }
-    }
-
-    fn clear_queue(&self) {
         if let Some(store) = &self.store {
+            if store.queue.is_empty() {
+                return;
+            }
             if let Err(e) = store.queue.clear() {
                 log::warn!("could not clear the analytics queue: {e}");
             }
@@ -218,12 +229,17 @@ impl Worker {
     /// out, or a recent failure is still being waited out. The blocking
     /// send runs on its own thread so a panic there comes back as a
     /// `JoinError`, which counts as one more failure rather than the end of
-    /// the worker.
+    /// the worker. It checks the opt-out flag between batches, so an
+    /// opt-out mid-flush lets at most the batch on the wire land.
     async fn try_flush(&mut self) {
+        if self.is_opted_out() {
+            self.clear_if_opted_out();
+            return;
+        }
         let Some(store) = &self.store else {
             return;
         };
-        if self.opted_out || store.queue.is_empty() || !self.backoff.ready_in().is_zero() {
+        if store.queue.is_empty() || !self.backoff.ready_in().is_zero() {
             return;
         }
 
@@ -232,8 +248,9 @@ impl Worker {
         let host = Arc::clone(&self.host);
         let api_key = Arc::clone(&self.api_key);
         let base = Arc::clone(&self.base);
+        let stop = Arc::clone(&self.opted_out);
         let sent = tauri::async_runtime::spawn_blocking(move || {
-            crate::send::flush(&queue, post.as_ref(), &host, &api_key, &base)
+            crate::send::flush(&queue, post.as_ref(), &host, &api_key, &base, &stop)
         })
         .await;
 
@@ -251,6 +268,76 @@ impl Worker {
                 log::warn!("sending analytics events did not finish, retrying in {wait:?}: {e}");
             }
         }
+        self.clear_if_opted_out();
+    }
+}
+
+/// What the commands hold: the way to the worker, the shared opt-out flag,
+/// and the data dir to persist that flag in.
+pub(crate) struct Handle {
+    tx: Sender<Msg>,
+    dir: Option<PathBuf>,
+    opted_out: Arc<AtomicBool>,
+    /// Serialises opt-out toggles, so two in quick succession leave the
+    /// flag and its file the way the later one set them.
+    toggling: Mutex<()>,
+    /// Set once a capture has been dropped for want of a worker, so a busy
+    /// or dead worker costs one log line, not one per event.
+    warned: AtomicBool,
+}
+
+impl Handle {
+    /// Queues `name` unless the install is opted out. Never blocks: a full
+    /// channel or a dead worker drops the event.
+    pub(crate) fn capture(&self, name: &str, properties: Map<String, Value>) {
+        if self.is_opted_out() {
+            return;
+        }
+        let Some(event) = Event::new(name, properties) else {
+            log::warn!(
+                "dropped an event with an unusable name: {:?}",
+                name.chars().take(LOGGED_NAME_LEN).collect::<String>()
+            );
+            return;
+        };
+        if self.tx.try_send(Msg::Capture(event)).is_err()
+            && !self.warned.swap(true, Ordering::Relaxed)
+        {
+            log::warn!("analytics is not keeping up; dropping events until it does");
+        }
+    }
+
+    /// Asks for a flush without waiting for it.
+    pub(crate) fn flush(&self) {
+        let _ = self.tx.try_send(Msg::Flush(None));
+    }
+
+    /// Takes effect before it returns: the flag is set (so capture stops
+    /// and an in-flight flush stops after its current batch) and saved to
+    /// disk here, not in the worker. The worker is only told so it can
+    /// clear the queue; if the message cannot be sent, the worker still
+    /// sees the flag at its next flush attempt, and the next start clears
+    /// the queue for an opt-out it finds on disk.
+    pub(crate) fn set_opt_out(&self, out: bool) {
+        {
+            let _toggling = self.toggling.lock().unwrap_or_else(PoisonError::into_inner);
+            self.opted_out.store(out, Ordering::SeqCst);
+            if let Some(dir) = &self.dir {
+                if let Err(e) = crate::identity::set_opted_out(dir, out) {
+                    log::warn!("could not save the analytics opt-out: {e}");
+                }
+            }
+        }
+        let _ = self.tx.try_send(Msg::OptOutChanged);
+    }
+
+    pub(crate) fn is_opted_out(&self) -> bool {
+        self.opted_out.load(Ordering::SeqCst)
+    }
+
+    /// See [`flush_before_exit`].
+    pub(crate) fn flush_before_exit(&self, limit: Duration) {
+        flush_before_exit(&self.tx, limit);
     }
 }
 
@@ -281,15 +368,16 @@ pub(crate) fn flush_before_exit(tx: &Sender<Msg>, limit: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::{flush_before_exit, Msg, Settings, Worker};
+    use super::{flush_before_exit, Handle, Msg, Settings, Worker};
     use crate::event::Event;
     use crate::queue::{Limits, Queue};
     use crate::send::Post;
     use serde_json::{Map, Value};
     use std::collections::VecDeque;
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::time::{Duration, Instant};
+    use tauri::async_runtime::Receiver;
 
     enum Outcome {
         Ok,
@@ -335,6 +423,29 @@ mod tests {
         }
     }
 
+    /// Holds its first post on the wire until the test lets it go, saying
+    /// when it gets there; later posts go straight through.
+    struct BlockingPost {
+        posts: Mutex<usize>,
+        on_the_wire: Mutex<mpsc::Sender<()>>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl Post for BlockingPost {
+        fn post(&self, _url: &str, _body: &Value) -> Result<(), String> {
+            let first = {
+                let mut posts = self.posts.lock().unwrap();
+                *posts += 1;
+                *posts == 1
+            };
+            if first {
+                self.on_the_wire.lock().unwrap().send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            Ok(())
+        }
+    }
+
     fn settings() -> Settings {
         Settings {
             api_key: "phc_test".to_string(),
@@ -345,12 +456,28 @@ mod tests {
         }
     }
 
-    fn worker(dir: &Path, post: &Arc<FakePost>) -> Worker {
-        let post: Arc<dyn Post> = post.clone();
-        Worker::new(settings(), Some(dir.to_path_buf()), post)
+    /// A worker over `dir` with its command-side handle, and the receiving
+    /// end for tests that pump messages by hand.
+    fn setup(dir: Option<&Path>, post: Arc<dyn Post>) -> (Worker, Handle, Receiver<Msg>) {
+        let worker = Worker::new(settings(), dir.map(Path::to_path_buf), post);
+        let (tx, rx) = tauri::async_runtime::channel(1_024);
+        let handle = worker.handle_for(tx);
+        (worker, handle, rx)
     }
 
-    /// The queue file the worker owns, opened read-only for inspection.
+    fn worker(dir: &Path, post: &Arc<FakePost>) -> (Worker, Handle, Receiver<Msg>) {
+        let post: Arc<dyn Post> = post.clone();
+        setup(Some(dir), post)
+    }
+
+    /// Hands every message the commands have sent so far to the worker.
+    async fn pump(worker: &mut Worker, rx: &mut Receiver<Msg>) {
+        while let Ok(msg) = rx.try_recv() {
+            worker.handle(msg).await;
+        }
+    }
+
+    /// The queue file the worker owns, opened here only for inspection.
     fn queue(dir: &Path) -> Queue {
         Queue::open(dir.join("posthog-queue.jsonl"), Limits::default())
     }
@@ -365,17 +492,11 @@ mod tests {
         }
     }
 
-    async fn opted_out(worker: &mut Worker) -> bool {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        worker.handle(Msg::IsOptedOut(tx)).await;
-        rx.await.unwrap()
-    }
-
     #[tokio::test]
     async fn twenty_captures_send_exactly_one_batch_of_twenty() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, _, _) = worker(dir.path(), &post);
 
         capture(&mut worker, 20).await;
 
@@ -387,7 +508,7 @@ mod tests {
     async fn fewer_than_twenty_wait_for_a_flush() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, _, _) = worker(dir.path(), &post);
 
         capture(&mut worker, 5).await;
         assert!(post.batch_sizes().is_empty());
@@ -402,7 +523,7 @@ mod tests {
     async fn every_event_carries_the_install_and_the_app() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, _, _) = worker(dir.path(), &post);
 
         capture(&mut worker, 1).await;
         worker.handle(Msg::Flush(None)).await;
@@ -422,24 +543,50 @@ mod tests {
     async fn opting_out_clears_the_queue_and_stops_capture_until_opting_back_in() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, handle, mut rx) = worker(dir.path(), &post);
 
         capture(&mut worker, 3).await;
-        worker.handle(Msg::SetOptOut(true)).await;
+        handle.set_opt_out(true);
+        pump(&mut worker, &mut rx).await;
         assert!(queue(dir.path()).is_empty());
         assert!(crate::identity::opted_out(dir.path()));
-        assert!(opted_out(&mut worker).await);
+        assert!(handle.is_opted_out());
 
+        for i in 0..25 {
+            handle.capture(&format!("e{i}"), Map::new());
+        }
         capture(&mut worker, 25).await;
+        pump(&mut worker, &mut rx).await;
         worker.handle(Msg::Flush(None)).await;
         assert!(queue(dir.path()).is_empty());
         assert!(post.batch_sizes().is_empty());
 
-        worker.handle(Msg::SetOptOut(false)).await;
+        handle.set_opt_out(false);
+        pump(&mut worker, &mut rx).await;
         assert!(!crate::identity::opted_out(dir.path()));
-        assert!(!opted_out(&mut worker).await);
-        capture(&mut worker, 2).await;
+        assert!(!handle.is_opted_out());
+        handle.capture("a", Map::new());
+        handle.capture("b", Map::new());
+        pump(&mut worker, &mut rx).await;
         assert_eq!(queue(dir.path()).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_capture_right_after_opting_out_is_never_queued() {
+        let dir = tempfile::tempdir().unwrap();
+        let post = FakePost::scripted(vec![]);
+        let (mut worker, handle, mut rx) = worker(dir.path(), &post);
+
+        // Sent before the opt-out, handled after it: dropped by the worker.
+        handle.capture("before", Map::new());
+        handle.set_opt_out(true);
+        // Sent after: dropped by the command.
+        handle.capture("after", Map::new());
+        pump(&mut worker, &mut rx).await;
+        worker.handle(Msg::Flush(None)).await;
+
+        assert!(queue(dir.path()).is_empty());
+        assert!(post.batch_sizes().is_empty());
     }
 
     #[tokio::test]
@@ -449,11 +596,48 @@ mod tests {
         crate::identity::set_opted_out(dir.path(), true).unwrap();
         let post = FakePost::scripted(vec![]);
 
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, handle, _) = worker(dir.path(), &post);
 
-        assert!(opted_out(&mut worker).await);
+        assert!(handle.is_opted_out());
         assert!(queue(dir.path()).is_empty());
         capture(&mut worker, 1).await;
+        assert!(queue(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn opting_out_mid_flush_takes_effect_at_once_and_stops_after_the_batch_on_the_wire() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..250 {
+            queue(dir.path()).push(&event(&format!("e{i}"))).unwrap();
+        }
+        let (on_the_wire, arrived) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let post = Arc::new(BlockingPost {
+            posts: Mutex::new(0),
+            on_the_wire: Mutex::new(on_the_wire),
+            release: Mutex::new(released),
+        });
+        let post_dyn: Arc<dyn Post> = post.clone();
+        let (worker, handle, rx) = setup(Some(dir.path()), post_dyn);
+        tauri::async_runtime::spawn(worker.run(rx, Duration::from_secs(3_600)));
+
+        // The start-up flush is now holding batch 1 on the wire.
+        arrived.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        handle.set_opt_out(true);
+        assert!(handle.is_opted_out(), "answered while the post is blocked");
+        assert!(crate::identity::opted_out(dir.path()), "persisted already");
+        handle.capture("after", Map::new());
+
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !queue(dir.path()).is_empty() {
+            assert!(Instant::now() < deadline, "the queue was never cleared");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // One more round trip through the worker, so nothing is in flight.
+        handle.flush_before_exit(Duration::from_secs(5));
+        assert_eq!(*post.posts.lock().unwrap(), 1);
         assert!(queue(dir.path()).is_empty());
     }
 
@@ -461,7 +645,7 @@ mod tests {
     async fn a_flush_while_backing_off_makes_no_request() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![Outcome::Err]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, _, _) = worker(dir.path(), &post);
 
         capture(&mut worker, 20).await;
         assert_eq!(post.batch_sizes(), vec![20]);
@@ -477,7 +661,7 @@ mod tests {
     async fn a_post_that_panics_counts_as_a_failure_and_the_worker_carries_on() {
         let dir = tempfile::tempdir().unwrap();
         let post = FakePost::scripted(vec![Outcome::Panic]);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, _, _) = worker(dir.path(), &post);
 
         capture(&mut worker, 20).await;
         assert_eq!(post.batch_sizes(), vec![20]);
@@ -486,8 +670,7 @@ mod tests {
         worker.handle(Msg::Flush(None)).await;
         assert_eq!(post.batch_sizes(), vec![20], "backoff engaged");
 
-        // Still answering.
-        assert!(!opted_out(&mut worker).await);
+        // Still working.
         capture(&mut worker, 1).await;
         assert_eq!(queue(dir.path()).len(), 21);
     }
@@ -518,14 +701,15 @@ mod tests {
     async fn with_no_data_dir_every_message_is_still_answered() {
         let post = FakePost::scripted(vec![]);
         let post_dyn: Arc<dyn Post> = post.clone();
-        let mut worker = Worker::new(settings(), None, post_dyn);
+        let (mut worker, handle, mut rx) = setup(None, post_dyn);
 
         capture(&mut worker, 25).await;
         worker.handle(Msg::Flush(None)).await;
         assert!(post.batch_sizes().is_empty());
 
-        worker.handle(Msg::SetOptOut(true)).await;
-        assert!(opted_out(&mut worker).await);
+        handle.set_opt_out(true);
+        pump(&mut worker, &mut rx).await;
+        assert!(handle.is_opted_out());
     }
 
     #[tokio::test]
@@ -533,14 +717,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         queue(dir.path()).push(&event("from-last-run")).unwrap();
         let post = FakePost::scripted(vec![]);
-        let worker = worker(dir.path(), &post);
+        let (worker, _, _) = worker(dir.path(), &post);
         let (tx, rx) = tauri::async_runtime::channel(16);
         tokio::spawn(worker.run(rx, Duration::from_millis(20)));
 
         // Answered only after the start-up flush has finished.
-        let (reply, answer) = tokio::sync::oneshot::channel();
-        tx.send(Msg::IsOptedOut(reply)).await.unwrap();
-        assert!(!answer.await.unwrap());
+        let (done, finished) = mpsc::channel();
+        tx.send(Msg::Flush(Some(done))).await.unwrap();
+        tokio::task::spawn_blocking(move || finished.recv().unwrap())
+            .await
+            .unwrap();
         assert_eq!(post.batch_sizes(), vec![1]);
 
         tx.send(Msg::Capture(event("later"))).await.unwrap();
@@ -557,8 +743,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         queue(dir.path()).push(&event("before-exit")).unwrap();
         let post = FakePost::scripted(vec![]);
-        let (tx, mut rx) = tauri::async_runtime::channel(16);
-        let mut worker = worker(dir.path(), &post);
+        let (mut worker, handle, mut rx) = worker(dir.path(), &post);
         // Handles messages but does no start-up flush, so the one post
         // below can only have come from the exit.
         tauri::async_runtime::spawn(async move {
@@ -567,7 +752,7 @@ mod tests {
             }
         });
 
-        flush_before_exit(&tx, Duration::from_secs(2));
+        handle.flush_before_exit(Duration::from_secs(2));
 
         assert_eq!(post.batch_sizes(), vec![1]);
         assert!(queue(dir.path()).is_empty());

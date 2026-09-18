@@ -8,18 +8,15 @@ mod send;
 mod worker;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
-use tauri::async_runtime::Sender;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, RunEvent, Runtime, State as Managed};
 
-use event::Event;
 use queue::Limits;
-use worker::{Msg, Settings, Worker};
+use worker::{Handle, Settings, Worker};
 
 const US_HOST: &str = "https://us.i.posthog.com";
 const EU_HOST: &str = "https://eu.i.posthog.com";
@@ -75,62 +72,6 @@ impl Config {
     }
 }
 
-/// What the commands hold: the way to the worker, and enough to answer on
-/// their own if the worker is gone.
-struct Handle {
-    tx: Sender<Msg>,
-    dir: Option<PathBuf>,
-    /// Set once a capture has been dropped for want of a worker, so a busy
-    /// or dead worker costs one log line, not one per event.
-    warned: AtomicBool,
-}
-
-impl Handle {
-    fn capture(&self, name: &str, properties: Map<String, Value>) {
-        let Some(event) = Event::new(name, properties) else {
-            log::warn!(
-                "dropped an event with an unusable name: {:?}",
-                shorten(name)
-            );
-            return;
-        };
-        if self.tx.try_send(Msg::Capture(event)).is_err()
-            && !self.warned.swap(true, Ordering::Relaxed)
-        {
-            log::warn!("analytics is not keeping up; dropping events until it does");
-        }
-    }
-
-    async fn set_opt_out(&self, out: bool) {
-        if self.tx.send(Msg::SetOptOut(out)).await.is_ok() {
-            return;
-        }
-        // No worker to clear the queue, but the choice itself must stick;
-        // the next start clears the queue for an opt-out it finds on disk.
-        if let Some(dir) = &self.dir {
-            if let Err(e) = identity::set_opted_out(dir, out) {
-                log::warn!("could not save the analytics opt-out: {e}");
-            }
-        }
-    }
-
-    async fn is_opted_out(&self) -> bool {
-        let (reply, answer) = tokio::sync::oneshot::channel();
-        if self.tx.send(Msg::IsOptedOut(reply)).await.is_ok() {
-            if let Ok(out) = answer.await {
-                return out;
-            }
-        }
-        self.dir.as_deref().is_some_and(identity::opted_out)
-    }
-}
-
-/// An event name as it may appear in a log line: bounded, whatever was
-/// passed.
-fn shorten(name: &str) -> String {
-    name.chars().take(64).collect()
-}
-
 /// Resolves and creates the app's data directory, or says once why
 /// analytics will be off for this run.
 fn data_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
@@ -172,19 +113,15 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
                 app_version: app.package_info().version.to_string(),
             };
             let (tx, rx) = tauri::async_runtime::channel(CHANNEL);
-            let worker = Worker::new(settings, dir.clone(), Arc::new(send::UreqPost::new()));
+            let worker = Worker::new(settings, dir, Arc::new(send::UreqPost::new()));
+            app.manage(worker.handle_for(tx));
             tauri::async_runtime::spawn(worker.run(rx, config.flush_every));
-            app.manage(Handle {
-                tx,
-                dir,
-                warned: AtomicBool::new(false),
-            });
             Ok(())
         })
         .on_event(|app, event| {
             if let RunEvent::Exit = event {
                 if let Some(handle) = app.try_state::<Handle>() {
-                    worker::flush_before_exit(&handle.tx, EXIT_WAIT);
+                    handle.flush_before_exit(EXIT_WAIT);
                 }
             }
         })
@@ -209,20 +146,21 @@ async fn capture(
 /// caller is never held up by it. Never returns `Err`.
 #[tauri::command]
 async fn flush(handle: Managed<'_, Handle>) -> Result<(), String> {
-    let _ = handle.tx.try_send(Msg::Flush(None));
+    handle.flush();
     Ok(())
 }
 
 /// Opts the install out (clearing anything queued) or back in, and
-/// remembers it across launches. Never returns `Err`.
+/// remembers it across launches. In effect, and saved, before it returns;
+/// it does not wait for the worker. Never returns `Err`.
 #[tauri::command]
 async fn set_opt_out(handle: Managed<'_, Handle>, out: bool) -> Result<(), String> {
-    handle.set_opt_out(out).await;
+    handle.set_opt_out(out);
     Ok(())
 }
 
 /// Whether the install has opted out. Never returns `Err`.
 #[tauri::command]
 async fn is_opted_out(handle: Managed<'_, Handle>) -> Result<bool, String> {
-    Ok(handle.is_opted_out().await)
+    Ok(handle.is_opted_out())
 }
