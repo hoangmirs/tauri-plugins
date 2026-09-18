@@ -2764,6 +2764,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-posthog"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "time",
+ "tokio",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
 name = "tauri-plugin-update-gate"
 version = "0.1.0-alpha.1"
 dependencies = [

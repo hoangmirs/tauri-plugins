@@ -1,0 +1,3 @@
+[default]
+description = "Queue analytics events, flush them, and manage opt-out"
+permissions = ["allow-capture", "allow-flush", "allow-set-opt-out", "allow-is-opted-out"]
