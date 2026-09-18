@@ -18,6 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 time.workspace = true
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 ureq.workspace = true
 uuid.workspace = true
 

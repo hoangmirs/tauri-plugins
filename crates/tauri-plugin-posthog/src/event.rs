@@ -17,6 +17,8 @@ const MAX_EVENT_NAME_LEN: usize = 200;
 /// A single analytics event, queued on disk until it is flushed. Carries
 /// its own identity (`uuid`) and the moment it happened (`timestamp`) so
 /// that queuing and retrying never changes either.
+// `event` is PostHog's own name for the field, and the queue stores it as is.
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub uuid: String,
