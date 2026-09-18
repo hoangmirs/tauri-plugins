@@ -44,13 +44,30 @@ impl Queue {
     }
 
     /// Appends `event` as one JSON line, then evicts the oldest events if
-    /// the queue is now past either limit.
+    /// the queue is now past either limit. Refuses, without touching the
+    /// file, an event whose own serialized line is already larger than
+    /// `max_bytes` — eviction can only make room by dropping other events,
+    /// so it can never fit one that doesn't fit on its own.
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue's file (or its parent directory) can't
+    /// Returns an error of kind [`std::io::ErrorKind::InvalidInput`] if
+    /// `event`'s serialized line is larger than the queue's byte limit, or
+    /// any other error if the queue's file (or its parent directory) can't
     /// be created or written to.
     pub fn push(&self, event: &Event) -> std::io::Result<()> {
+        let line = serialize_line(event)?;
+        let line_len = line.len() as u64;
+        if line_len > self.limits.max_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "event line is {line_len} bytes, over the queue's {}-byte limit",
+                    self.limits.max_bytes
+                ),
+            ));
+        }
+
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -59,7 +76,7 @@ impl Queue {
             .create(true)
             .append(true)
             .open(&self.path)?;
-        file.write_all(serialize_line(event)?.as_bytes())?;
+        file.write_all(line.as_bytes())?;
         drop(file);
 
         self.evict()
@@ -338,5 +355,64 @@ mod tests {
         queue.clear().unwrap();
 
         assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn push_refuses_an_event_that_cannot_fit_the_queue_at_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = event("a");
+        let line_len = serde_json::to_string(&e).unwrap().len() as u64 + 1;
+
+        let limits = Limits {
+            max_events: usize::MAX,
+            max_bytes: line_len - 1,
+        };
+        let queue = Queue::open(dir.path().join("queue.jsonl"), limits);
+
+        let err = queue.push(&e).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn an_oversized_push_leaves_earlier_events_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = event("a");
+        let b = event("b");
+        let line_len = |e: &Event| serde_json::to_string(e).unwrap().len() as u64 + 1;
+        let two_lines = line_len(&a) + line_len(&b);
+
+        let limits = Limits {
+            max_events: usize::MAX,
+            max_bytes: two_lines,
+        };
+        let queue = Queue::open(dir.path().join("queue.jsonl"), limits);
+        queue.push(&a).unwrap();
+        queue.push(&b).unwrap();
+
+        let mut big_properties = Map::new();
+        big_properties.insert("pad".to_string(), "x".repeat(1024).into());
+        let big = Event::new("big", big_properties).unwrap();
+        assert!(serde_json::to_string(&big).unwrap().len() as u64 + 1 > two_lines);
+
+        let err = queue.push(&big).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(uuids(&queue.peek(10)), vec![a.uuid.clone(), b.uuid.clone()]);
+    }
+
+    #[test]
+    fn an_event_exactly_at_the_byte_limit_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = event("a");
+        let line_len = serde_json::to_string(&e).unwrap().len() as u64 + 1;
+
+        let limits = Limits {
+            max_events: usize::MAX,
+            max_bytes: line_len,
+        };
+        let queue = Queue::open(dir.path().join("queue.jsonl"), limits);
+
+        queue.push(&e).unwrap();
+        assert_eq!(queue.len(), 1);
     }
 }
