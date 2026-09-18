@@ -64,9 +64,9 @@ let storage: FakeStorage | undefined;
 // (config, timer, pagehide flag) reset — since `web.ts` is one module
 // instance shared by every test in this file and by `index.ts`'s own
 // import of it.
-function setupWeb(): FakeStorage {
+async function setupWeb(): Promise<FakeStorage> {
   teardownTauri();
-  web.resetForTests();
+  await web.resetForTests();
   storage = new FakeStorage();
   // A real `EventTarget` so `window.addEventListener`/`dispatchEvent` work,
   // unlike bare `globalThis` in Node (which has neither).
@@ -75,8 +75,8 @@ function setupWeb(): FakeStorage {
   return storage;
 }
 
-function teardownWeb(): void {
-  web.resetForTests();
+async function teardownWeb(): Promise<void> {
+  await web.resetForTests();
   delete (globalThis as Globals).window;
   delete (globalThis as Globals).localStorage;
   storage = undefined;
@@ -96,6 +96,27 @@ function setupFetch(handler: (call: FetchCall) => Promise<Response> | Response):
 
 function teardownFetch(): void {
   delete (globalThis as Globals).fetch;
+}
+
+/** A `fetch` double whose responses the test resolves by hand, one call at
+ * a time — for provoking overlap between two flush attempts: the first
+ * request is left hanging while a second is requested, so a test can
+ * prove they never run concurrently. */
+function setupDeferredFetch(): { calls: FetchCall[]; resolveNext: (status: number) => void } {
+  const calls: FetchCall[] = [];
+  const resolvers: Array<(response: Response) => void> = [];
+  (globalThis as Globals).fetch = (url: string, init: RequestInit) => {
+    calls.push({ url, init: init ?? {} });
+    return new Promise<Response>((resolve) => resolvers.push(resolve));
+  };
+  return {
+    calls,
+    resolveNext(status: number) {
+      const resolve = resolvers.shift();
+      if (resolve === undefined) throw new Error("no pending fetch request to resolve");
+      resolve(new Response(null, { status }));
+    },
+  };
 }
 
 function ok(): Response {
@@ -254,20 +275,20 @@ test("under Tauri, init is a no-op", async () => {
 // ---------------------------------------------------------------------------
 
 test("on the web with no init, track is a silent no-op", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   const calls = setupFetch(() => ok());
   try {
     await track("game_finished");
     assert.equal(store.raw(QUEUE_KEY), undefined);
     assert.equal(calls.length, 0);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web after init, track stores a fully-shaped event in localStorage", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   Object.defineProperty(globalThis, "navigator", { value: { language: "vi-VN" }, configurable: true });
   try {
@@ -295,14 +316,14 @@ test("on the web after init, track stores a fully-shaped event in localStorage",
     assert.equal(stored.properties.game, "caro");
     assert.equal(stored.properties.$locale, "vi-VN");
   } finally {
-    teardownWeb();
+    await teardownWeb();
     if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
     else delete (globalThis as Globals).navigator;
   }
 });
 
 test("on the web, a caller cannot override distinct_id or $process_person_profile", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   try {
     init({ apiKey: "phc_test" });
     await track("x", { distinct_id: "someone@example.com", $process_person_profile: true });
@@ -312,12 +333,12 @@ test("on the web, a caller cannot override distinct_id or $process_person_profil
     assert.equal(queue[0]?.properties.distinct_id, id);
     assert.equal(queue[0]?.properties.$process_person_profile, false);
   } finally {
-    teardownWeb();
+    await teardownWeb();
   }
 });
 
 test("on the web, an empty or overlong event name is dropped", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   try {
     init({ apiKey: "phc_test" });
     await track("   ");
@@ -326,12 +347,12 @@ test("on the web, an empty or overlong event name is dropped", async () => {
     await track("x".repeat(200));
     assert.equal(queueOf(store).length, 1);
   } finally {
-    teardownWeb();
+    await teardownWeb();
   }
 });
 
 test("on the web, flush POSTs {api_key, batch} to {host}/batch/ and removes events on 2xx", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   const calls = setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test", host: "https://eu.i.posthog.com/" });
@@ -350,13 +371,13 @@ test("on the web, flush POSTs {api_key, batch} to {host}/batch/ and removes even
 
     assert.equal(queueOf(store).length, 0);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, events stay queued after a failed (non-2xx) flush", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   setupFetch(() => serverError());
   try {
     init({ apiKey: "phc_test" });
@@ -364,13 +385,13 @@ test("on the web, events stay queued after a failed (non-2xx) flush", async () =
     await flush();
     assert.equal(queueOf(store).length, 1);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, events stay queued when fetch itself throws", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   (globalThis as Globals).fetch = async () => {
     throw new Error("offline");
   };
@@ -380,13 +401,13 @@ test("on the web, events stay queued when fetch itself throws", async () => {
     await assert.doesNotReject(flush());
     assert.equal(queueOf(store).length, 1);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, flush sends at most 100 events per request", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   const calls = setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test" });
@@ -410,13 +431,13 @@ test("on the web, flush sends at most 100 events per request", async () => {
     assert.equal(remaining.length, 50);
     assert.equal(remaining[0]?.event, "e100");
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, 20 queued events trigger an automatic flush", async () => {
-  setupWeb();
+  await setupWeb();
   const calls = setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test" });
@@ -428,13 +449,13 @@ test("on the web, 20 queued events trigger an automatic flush", async () => {
     await track("e19");
     assert.equal(calls.length, 1);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, the queue keeps at most 1,000 events, oldest dropped", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   // A flush that always fails never removes anything, so this exercises
   // only `track`'s own eviction, not a race with a successful flush.
   setupFetch(() => serverError());
@@ -449,13 +470,13 @@ test("on the web, the queue keeps at most 1,000 events, oldest dropped", async (
     assert.equal(queue[0]?.event, "e10");
     assert.equal(queue[queue.length - 1]?.event, "e1009");
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, setOptOut(true) clears the queue, stops track, and persists", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test" });
@@ -469,13 +490,13 @@ test("on the web, setOptOut(true) clears the queue, stops track, and persists", 
     assert.equal(await isOptedOut(), true);
     assert.equal(store.raw(OPT_OUT_KEY), "true");
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("a throwing localStorage makes every web function a silent no-op", async () => {
-  const store = setupWeb();
+  const store = await setupWeb();
   store.throwing = true;
   setupFetch(() => ok());
   try {
@@ -485,7 +506,7 @@ test("a throwing localStorage makes every web function a silent no-op", async ()
     await assert.doesNotReject(setOptOut(true));
     assert.equal(await isOptedOut(), false);
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
@@ -495,7 +516,7 @@ test("a throwing localStorage makes every web function a silent no-op", async ()
 // ---------------------------------------------------------------------------
 
 test("the web's periodic flush starts lazily on the first track after init, and is unref'd", async () => {
-  setupWeb();
+  await setupWeb();
   const calls = setupFetch(() => ok());
 
   let unrefCalled = false;
@@ -520,13 +541,13 @@ test("the web's periodic flush starts lazily on the first track after init, and 
     assert.ok(unrefCalled, "the periodic timer should be unref'd so it never blocks the process from exiting");
   } finally {
     (globalThis as Globals).setInterval = originalSetInterval;
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("the periodic timer flushes every 30 seconds", async (t) => {
-  setupWeb();
+  await setupWeb();
   const calls = setupFetch(() => ok());
   t.mock.timers.enable({ apis: ["setInterval"] });
   try {
@@ -540,13 +561,13 @@ test("the periodic timer flushes every 30 seconds", async (t) => {
     await Promise.resolve();
     assert.equal(calls.length, 1, "the 30s timer should have triggered exactly one flush");
   } finally {
-    teardownWeb();
+    await teardownWeb();
     teardownFetch();
   }
 });
 
 test("on the web, pagehide flushes with fetch keepalive: true", async () => {
-  setupWeb();
+  await setupWeb();
   const calls = setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test" });
@@ -554,11 +575,171 @@ test("on the web, pagehide flushes with fetch keepalive: true", async () => {
     assert.equal(calls.length, 0);
 
     window.dispatchEvent(new Event("pagehide"));
+    // the handler fires a chained, fire-and-forget flush — give it a turn
+    await Promise.resolve();
+    await Promise.resolve();
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.init.keepalive, true);
   } finally {
-    teardownWeb();
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Flush serialization and retry backoff
+// ---------------------------------------------------------------------------
+
+test("overlapping flush() calls are serialized: no event is lost or sent twice", async () => {
+  const store = await setupWeb();
+  const { calls, resolveNext } = setupDeferredFetch();
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    await track("b");
+
+    const first = flush();
+    // let the chained attempt reach its `fetch` call
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 1, "the first flush's request should be in flight");
+
+    // more events arrive while the first request is still in flight
+    await track("c");
+
+    const second = flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 1, "the second flush must wait its turn, not overlap the first");
+
+    resolveNext(200); // the first request succeeds, sending [a, b]
+    await first;
+    // the second attempt's own turn now runs
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 2, "the second flush should now have made its own request");
+
+    resolveNext(200); // the second request succeeds, sending [c]
+    await second;
+
+    assert.equal(queueOf(store).length, 0, "every event should have been sent");
+    const sentEvents = calls.flatMap(
+      (call) => (JSON.parse(call.init.body as string) as { batch: Array<{ event: string }> }).batch,
+    );
+    assert.deepEqual(
+      sentEvents.map((e) => e.event).sort(),
+      ["a", "b", "c"],
+      "every event should have been sent exactly once, none lost or duplicated",
+    );
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("a successful flush leaves exactly the events tracked during its request", async () => {
+  const store = await setupWeb();
+  const { calls, resolveNext } = setupDeferredFetch();
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+
+    const pending = flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+
+    // tracked while the in-flight request is still unresolved
+    await track("b");
+
+    resolveNext(200);
+    await pending;
+
+    const remaining = queueOf(store);
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0]?.event, "b");
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("a failed flush backs off 30s, doubling, capped at 600s; a success resets it", async () => {
+  const store = await setupWeb();
+  let clockNow = 1_000_000;
+  web.setClockForTests(() => clockNow);
+  let succeed = false;
+  const calls = setupFetch(() => (succeed ? ok() : serverError()));
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+
+    await flush();
+    assert.equal(calls.length, 1, "the first attempt fails, starting a 30s backoff");
+
+    await flush();
+    assert.equal(calls.length, 1, "within the 30s wait, no new request is made");
+
+    clockNow += 29_999;
+    await flush();
+    assert.equal(calls.length, 1, "still one millisecond short of the 30s wait");
+
+    clockNow += 1;
+    await flush();
+    assert.equal(calls.length, 2, "the 30s wait has elapsed, so a retry is made");
+
+    clockNow += 59_999;
+    await flush();
+    assert.equal(calls.length, 2, "the second failure doubled the wait to 60s");
+    clockNow += 1;
+    await flush();
+    assert.equal(calls.length, 3);
+
+    clockNow += 120_000;
+    await flush();
+    assert.equal(calls.length, 4, "doubled again to 120s");
+
+    clockNow += 240_000;
+    await flush();
+    assert.equal(calls.length, 5, "doubled again to 240s");
+
+    clockNow += 480_000;
+    await flush();
+    assert.equal(calls.length, 6, "doubled again to 480s");
+
+    clockNow += 599_999;
+    await flush();
+    assert.equal(calls.length, 6, "capped at 600s: one millisecond short still waits");
+    clockNow += 1;
+    await flush();
+    assert.equal(calls.length, 7, "600s elapsed: a retry is made");
+
+    clockNow += 600_000;
+    await flush();
+    assert.equal(calls.length, 8, "still capped at 600s, not still doubling past it");
+
+    // now let a send succeed, and confirm success resets the backoff
+    succeed = true;
+    clockNow += 600_000; // wait out the capped 600s from attempt 8 before retrying
+    await flush();
+    assert.equal(calls.length, 9);
+    assert.equal(queueOf(store).length, 0, "the event was finally sent");
+
+    succeed = false;
+    await track("b");
+    await flush();
+    assert.equal(calls.length, 10, "fails again -> a fresh 30s backoff, not a continued 600s one");
+    await flush();
+    assert.equal(calls.length, 10, "an immediate retry is still refused");
+    clockNow += 29_999;
+    await flush();
+    assert.equal(calls.length, 10);
+    clockNow += 1;
+    await flush();
+    assert.equal(calls.length, 11, "30s again confirms the backoff was reset by the earlier success");
+  } finally {
+    await teardownWeb();
     teardownFetch();
   }
 });
@@ -573,13 +754,13 @@ test("the web $lib_version constant matches package.json's version", async () =>
   const pkgPath = url.fileURLToPath(new URL("../package.json", import.meta.url));
   const pkg = JSON.parse(await fs.readFile(pkgPath, "utf8")) as { version: string };
 
-  const store = setupWeb();
+  const store = await setupWeb();
   try {
     init({ apiKey: "phc_test" });
     await track("a");
     const queue = queueOf(store);
     assert.equal(queue[0]?.properties.$lib_version, pkg.version);
   } finally {
-    teardownWeb();
+    await teardownWeb();
   }
 });

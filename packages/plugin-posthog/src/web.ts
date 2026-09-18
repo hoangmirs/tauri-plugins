@@ -69,6 +69,12 @@ const QUEUE_KEY = "posthog-plugin:queue";
 const ID_KEY = "posthog-plugin:id";
 const OPT_OUT_KEY = "posthog-plugin:opt-out";
 
+/** How long a retry waits after a failed send — mirrors the Rust side's
+ * `send::Backoff`: 30s on the first failure, doubling each subsequent one,
+ * capped at 10 minutes; any success resets it. */
+const INITIAL_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 600_000;
+
 /** Set by {@link init}; `undefined` means `track`/`flush` are no-ops, the
  * state a page that never called `init` (or isn't running under Tauri, and
  * imported this module only transitively) is in. */
@@ -81,6 +87,50 @@ let timer: ReturnType<typeof setInterval> | undefined;
 /** Whether the `pagehide` listener has been registered yet, so it is only
  * ever added once. */
 let pagehideRegistered = false;
+
+/** The clock the backoff reads to decide whether a retry is due yet.
+ * Swappable in tests (see {@link setClockForTests}) so backoff can be
+ * exercised without a real wait; real code never touches this. */
+let clock: () => number = () => Date.now();
+
+/** The wait the *next* failure will record — doubles on each one, reset to
+ * {@link INITIAL_BACKOFF_MS} by a success. */
+let backoffNext = INITIAL_BACKOFF_MS;
+
+/** When the most recent failure happened, and how long it decided to
+ * wait — `undefined` once a success has reset it, or before any failure
+ * at all, meaning a retry is due right now. */
+let backoffWaitingSince: { at: number; wait: number } | undefined;
+
+/** The chain every flush attempt joins: whichever trigger — the 20-event
+ * threshold, the 30s timer, `pagehide`, or a manual `flush()` — calls
+ * {@link performFlush} next appends itself to the tail, so at most one
+ * `fetch` is ever in flight and a later attempt always sees whatever an
+ * earlier one left in the queue, rather than racing it. */
+let flushChain: Promise<void> = Promise.resolve();
+
+/** How much longer, in milliseconds, a retry must wait — zero once the
+ * last recorded wait has elapsed, or when there has been no failure since
+ * the last success. */
+function backoffReadyInMs(): number {
+  if (backoffWaitingSince === undefined) return 0;
+  const elapsed = clock() - backoffWaitingSince.at;
+  return Math.max(0, backoffWaitingSince.wait - elapsed);
+}
+
+/** Records a failure now: the next attempt must wait `backoffNext`, which
+ * then doubles (capped) for the failure after that. */
+function backoffFailed(): void {
+  backoffWaitingSince = { at: clock(), wait: backoffNext };
+  backoffNext = Math.min(backoffNext * 2, MAX_BACKOFF_MS);
+}
+
+/** Resets the backoff: the next failure waits {@link INITIAL_BACKOFF_MS}
+ * again, and a retry is due at once until then. */
+function backoffSucceeded(): void {
+  backoffNext = INITIAL_BACKOFF_MS;
+  backoffWaitingSince = undefined;
+}
 
 /**
  * Configures the web path: the project API key, optionally a non-US (or
@@ -248,7 +298,11 @@ export async function track(event: string, properties?: Record<string, unknown>)
     const queue = trimQueue([...readQueue(), queued]);
     writeQueue(queue);
     ensureTimer();
-    if (queue.length >= FLUSH_AT) {
+    // The backoff precheck (rather than always chaining, then letting
+    // `runFlush` decide) keeps a long backoff from piling up one chain
+    // entry per `track` call — the queue may sit above `FLUSH_AT` for a
+    // long time while a retry is owed.
+    if (queue.length >= FLUSH_AT && backoffReadyInMs() === 0) {
       void performFlush(false);
     }
   } catch {
@@ -256,34 +310,63 @@ export async function track(event: string, properties?: Record<string, unknown>)
   }
 }
 
-/** The one flush both `flush()` and the timer/`pagehide` paths use. Sends
- * at most `MAX_BATCH` events to `{host}/batch/`, and only removes them
- * from the queue on a 2xx response — re-reading the queue right before
- * that write, so events queued while the request was in flight are never
- * discarded. A failed or throwing `fetch` leaves the queue untouched. */
-async function performFlush(keepalive: boolean): Promise<void> {
+/** The actual work of one flush attempt: only ever run one at a time, in
+ * turn, via {@link performFlush}'s chain — never called directly. Honours
+ * the backoff (no request at all while one is owed), sends at most
+ * `MAX_BATCH` events to `{host}/batch/`, and on a 2xx response removes
+ * exactly the events that were sent — by `uuid`, from a *fresh* read of
+ * the queue, so events queued while this request was in flight (by a
+ * `track` that ran between this attempt starting and its response
+ * arriving) are never discarded. A failed or throwing `fetch`, or a
+ * non-2xx response, leaves the queue untouched and starts (or extends)
+ * the backoff; any success resets it. */
+async function runFlush(keepalive: boolean): Promise<void> {
   try {
     if (config === undefined) return;
+    if (backoffReadyInMs() > 0) return; // still waiting out a previous failure
     const waiting = readQueue();
     if (waiting.length === 0) return;
     const batch = waiting.slice(0, MAX_BATCH);
 
     const url = `${config.host.replace(/\/+$/, "")}/batch/`;
     const body = JSON.stringify({ api_key: config.apiKey, batch });
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      keepalive,
-    });
 
-    if (response.ok) {
-      const stillWaiting = readQueue();
-      writeQueue(stillWaiting.slice(batch.length));
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive,
+      });
+    } catch {
+      backoffFailed();
+      return;
     }
+
+    if (!response.ok) {
+      backoffFailed();
+      return;
+    }
+
+    backoffSucceeded();
+    const sentIds = new Set(batch.map((event) => event.uuid));
+    const stillWaiting = readQueue();
+    writeQueue(stillWaiting.filter((event) => !sentIds.has(event.uuid)));
   } catch {
-    // a failed network leaves everything queued for the next attempt
+    // a throwing localStorage (or anything else unexpected) leaves the
+    // queue untouched, same as a failed network
   }
+}
+
+/** The one entry point both `flush()` and the timer/`pagehide` paths use.
+ * Never overlaps another attempt: this call joins the tail of
+ * {@link flushChain}, so it runs only once every earlier-requested attempt
+ * has finished, and resolves only once its own turn has run. */
+function performFlush(keepalive: boolean): Promise<void> {
+  const attempt = flushChain.then(() => runFlush(keepalive));
+  flushChain = attempt;
+  return attempt;
 }
 
 /** Sends whatever is queued now. Never rejects: a failed or throwing
@@ -315,15 +398,33 @@ export async function isOptedOut(): Promise<boolean> {
   }
 }
 
-/** Test-only: clears the timer, the `pagehide` registration flag, and the
- * in-memory config, so each test starts from the state a freshly loaded
- * page would be in. Not exported from the package's public entry
- * (`index.ts`) — tests import this module directly. */
-export function resetForTests(): void {
+/** Test-only: overrides the clock the backoff reads, so a test can make a
+ * retry due without a real wait. Not exported from the package's public
+ * entry. */
+export function setClockForTests(fn: () => number): void {
+  clock = fn;
+}
+
+/** Test-only: waits for every currently chained flush attempt to finish
+ * (so none of it leaks into whatever the next test does), then clears the
+ * timer, the `pagehide` registration flag, the in-memory config, the
+ * backoff, and the clock override — the state a freshly loaded page would
+ * be in. Not exported from the package's public entry (`index.ts`) — tests
+ * import this module directly, and must `await` this (a pending flush
+ * attempt is real async work, not something a synchronous reset can
+ * discard). */
+export async function resetForTests(): Promise<void> {
+  await flushChain.catch(() => {
+    // `runFlush` never rejects, but this drain must not throw either way
+  });
   if (timer !== undefined) {
     clearInterval(timer);
     timer = undefined;
   }
   pagehideRegistered = false;
   config = undefined;
+  clock = () => Date.now();
+  backoffNext = INITIAL_BACKOFF_MS;
+  backoffWaitingSince = undefined;
+  flushChain = Promise.resolve();
 }
