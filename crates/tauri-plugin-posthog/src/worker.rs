@@ -52,6 +52,11 @@ const EXIT_RETRY: Duration = Duration::from_millis(10);
 /// The longest event name a log line will carry.
 const LOGGED_NAME_LEN: usize = 64;
 
+/// `name` as a log line carries it: cut, so no log line grows with it.
+fn logged_name(name: &str) -> String {
+    name.chars().take(LOGGED_NAME_LEN).collect()
+}
+
 /// This build's OS, the way `PostHog` spells it in `$os`.
 const OS: &str = if cfg!(target_os = "ios") {
     "iOS"
@@ -260,12 +265,12 @@ impl Worker {
             Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
                 log::warn!(
                     "dropped event {:?}: larger than the queue can hold",
-                    event.event
+                    logged_name(&event.event)
                 );
                 return;
             }
             Err(e) => {
-                log::warn!("could not queue event {:?}: {e}", event.event);
+                log::warn!("could not queue event {:?}: {e}", logged_name(&event.event));
                 return;
             }
         }
@@ -381,7 +386,7 @@ impl Handle {
         let Some(event) = Event::new(name, properties) else {
             log::warn!(
                 "dropped an event with an unusable name: {:?}",
-                name.chars().take(LOGGED_NAME_LEN).collect::<String>()
+                logged_name(name)
             );
             return;
         };
@@ -462,7 +467,7 @@ pub(crate) fn flush_before_exit(tx: &Sender<Msg>, limit: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::{flush_before_exit, Handle, Msg, Settings, Worker};
+    use super::{flush_before_exit, logged_name, Handle, Msg, Settings, Worker};
     use crate::event::Event;
     use crate::queue::{Limits, Queue};
     use crate::send::Post;
@@ -964,6 +969,13 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         assert_eq!(post.batch_sizes(), vec![1, 1]);
+    }
+
+    #[test]
+    fn a_logged_name_is_cut_to_the_same_length_everywhere() {
+        let long = "é".repeat(200);
+        assert_eq!(logged_name(&long).chars().count(), 64);
+        assert_eq!(logged_name("short"), "short");
     }
 
     #[test]
