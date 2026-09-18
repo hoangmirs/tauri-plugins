@@ -1,0 +1,37 @@
+{
+  "name": "tauri-plugin-update-gate-api",
+  "version": "0.1.0-alpha.1",
+  "description": "Framework-neutral TypeScript facade for tauri-plugin-update-gate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoangmirs/tauri-plugins.git",
+    "directory": "packages/plugin-update-gate"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@types/node": "26.6.1",
+    "typescript": "7.0.2"
+  },
+  "license": "MIT"
+}
