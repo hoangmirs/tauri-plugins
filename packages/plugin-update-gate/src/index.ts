@@ -13,6 +13,18 @@ export type Gate = {
  * reached. */
 const OPEN: Gate = { state: "ok", latestVersion: null, message: null, url: null };
 
+/** How long `checkUpdate` waits for the command before it gives up and
+ * answers the open gate. Above the Rust side's default 5-second fetch
+ * timeout, so a slow network is answered by Rust, and this only fires when
+ * the command itself never answers. */
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+export type CheckOptions = {
+  /** How long to wait for the command, in milliseconds, before answering
+   * the open gate. Keep it above the plugin's Rust `timeout`. */
+  timeoutMs?: number;
+};
+
 /** The browser's own language choice, when one is available. Node and other
  * non-browser hosts may have no `navigator`, or one without a `language`. */
 function browserLanguage(): string | undefined {
@@ -22,21 +34,28 @@ function browserLanguage(): string | undefined {
 /**
  * Asks the Rust `check` command whether the installed copy is too old to
  * run, in `lang` — the app's own chosen language, since the message must
- * read in that language and phones have no usable locale env vars. Defaults
- * to `navigator.language` when the caller passes none; if neither is
- * available, no `lang` is sent at all, and the command falls back through
- * the OS environment to `"en"`.
+ * read in that language. Defaults to `navigator.language` (the OS language
+ * in a Tauri webview) when the caller passes none; if that is unavailable
+ * too, no `lang` is sent at all, and the command falls back through the OS
+ * environment to `"en"`.
  *
- * Outside Tauri, and whenever the command cannot be reached, this resolves
- * to the open gate — the gate fails open, never closed by an error.
+ * Outside Tauri, whenever the command cannot be reached, and when it does
+ * not answer within `options.timeoutMs` (default 10 s), this resolves to
+ * the open gate — the gate fails open, and this promise never rejects.
  */
-export async function checkUpdate(lang?: string): Promise<Gate> {
-  if (!isTauri()) return OPEN; // the web always serves the newest code
-  const resolvedLang = lang ?? browserLanguage();
-  const args = resolvedLang === undefined ? {} : { lang: resolvedLang };
+export async function checkUpdate(lang?: string, options: CheckOptions = {}): Promise<Gate> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await invoke<Gate>("plugin:update-gate|check", args);
+    if (!isTauri()) return OPEN; // the web always serves the newest code
+    const resolvedLang = lang ?? browserLanguage();
+    const args = resolvedLang === undefined ? {} : { lang: resolvedLang };
+    const timedOut = new Promise<Gate>((resolve) => {
+      timer = setTimeout(() => resolve(OPEN), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    });
+    return await Promise.race([invoke<Gate>("plugin:update-gate|check", args), timedOut]);
   } catch {
     return OPEN; // a gate that cannot be read is open
+  } finally {
+    clearTimeout(timer);
   }
 }

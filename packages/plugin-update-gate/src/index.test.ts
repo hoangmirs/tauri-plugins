@@ -112,3 +112,79 @@ test("with no language given, the default comes from navigator.language", async 
     }
   }
 });
+
+test("an invoke that never settles times out to the open gate", async () => {
+  (globalThis as Globals).isTauri = true;
+  (globalThis as Globals).window = globalThis;
+  (globalThis as Globals).__TAURI_INTERNALS__ = {
+    invoke: () => new Promise(() => {}),
+  };
+  try {
+    const { checkUpdate } = await import("./index.ts?6");
+    assert.deepEqual(await checkUpdate("vi", { timeoutMs: 20 }), {
+      state: "ok",
+      latestVersion: null,
+      message: null,
+      url: null,
+    });
+  } finally {
+    teardownTauri();
+  }
+});
+
+test("an answer that beats the timeout is the one returned", async () => {
+  (globalThis as Globals).isTauri = true;
+  (globalThis as Globals).window = globalThis;
+  (globalThis as Globals).__TAURI_INTERNALS__ = {
+    invoke: async () => ({
+      state: "forced",
+      latestVersion: "1.4.0",
+      message: null,
+      url: null,
+    }),
+  };
+  try {
+    const { checkUpdate } = await import("./index.ts?7");
+    assert.equal((await checkUpdate("vi", { timeoutMs: 1_000 })).state, "forced");
+  } finally {
+    teardownTauri();
+  }
+});
+
+test("a navigator that throws on language still fails open", async () => {
+  (globalThis as Globals).isTauri = true;
+  (globalThis as Globals).window = globalThis;
+  let called = false;
+  (globalThis as Globals).__TAURI_INTERNALS__ = {
+    invoke: async () => {
+      called = true;
+      return { state: "forced", latestVersion: null, message: null, url: null };
+    },
+  };
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    value: {
+      get language(): string {
+        throw new Error("no language here");
+      },
+    },
+    configurable: true,
+  });
+  try {
+    const { checkUpdate } = await import("./index.ts?8");
+    assert.deepEqual(await checkUpdate(), {
+      state: "ok",
+      latestVersion: null,
+      message: null,
+      url: null,
+    });
+    assert.equal(called, false);
+  } finally {
+    teardownTauri();
+    if (originalNavigator) {
+      Object.defineProperty(globalThis, "navigator", originalNavigator);
+    } else {
+      delete (globalThis as Globals).navigator;
+    }
+  }
+});
