@@ -152,17 +152,24 @@ other plugin here.
 Every event carries `"$process_person_profile": false`, which a caller's
 own properties can never override — PostHog never creates a person profile
 for it, and bills it at its cheaper anonymous-event rate. There is no
-`identify` call, no way to pass a `distinct_id`, and no person properties.
-`distinct_id` is a random v4 UUID made once per install (once per browser
-on the web) and kept on disk — an app data file, or `localStorage` on the
-web — so the same install is recognizable across launches without being
-identifiable.
+`identify` call, no way to pass a `distinct_id`, and no person properties:
+PostHog's identity events (`$identify`, `$create_alias`,
+`$merge_dangerously`, `$groupidentify`) are refused as event names, and
+`$set`, `$set_once`, `$unset`, `$groups` and `$anon_distinct_id` are
+stripped from any event's properties. `distinct_id` is a random v4 UUID
+made once per install (once per browser on the web) and kept on disk — an
+app data file, or `localStorage` on the web — so the same install is
+recognizable across launches without being identifiable. Under Tauri it is
+only made when the first event is queued, so an install that opted out
+before sending anything never gets one.
 
 An event's `properties` are the caller's own, merged onto what the plugin
 adds — `distinct_id`, `$process_person_profile: false`, `$lib`
 (`tauri-plugin-posthog`, or `tauri-plugin-posthog-web` on the plain web),
-`$lib_version`, `$app_version` (the running `PackageInfo` version under
-Tauri; whatever `appVersion` was passed to `init` on the web), `$os` (`iOS`,
+`$lib_version`, `$app_version` (under Tauri, the `PackageInfo` version of
+the app that captured the event, even if a later version sends it; on the
+web, whatever `appVersion` was passed to `init`, and left out entirely when
+none was), `$os` (`iOS`,
 `Android`, `macOS`, `Windows`, `Linux`, or `Web`), and `platform` (the same,
 lowercased, `windows`/`linux`/`web`/…). The JS side also adds `$locale`
 from `navigator.language`, when there is one, since only it can see the
@@ -213,7 +220,8 @@ await isOptedOut(); // false once opted back in
   no-op, since Rust already holds its own config from `Config` at plugin
   `init`; `host` defaults to PostHog's US cloud, and `appVersion` (the
   app's own version, not the package's) feeds `$app_version` on events sent
-  from the web.
+  from the web — without it, web events carry no `$app_version` at all.
+  If an earlier page left events queued, `init` starts sending them.
 - `track(event, properties?)` — queues an event, the same shape whichever
   side sends it, so PostHog can't tell.
 - `flush()` — asks for a flush now. Under Tauri it returns as soon as the
@@ -237,10 +245,14 @@ is already over the 1 MB limit is refused outright, since eviction can
 only make room by dropping *other* events.
 
 A flush is triggered when **20 events** are waiting, every **30 seconds**,
-once on launch, best-effort on app exit (waited for at most **2 seconds**;
-whatever hasn't sent by then stays queued for next launch), and — web
-only — on `pagehide`. Each request carries at most **100 events**; a
-larger queue is sent in several requests. Every request is bounded by a
+once on launch (on the web, at `init`), best-effort on app exit (waited
+for at most **2 seconds**; whatever hasn't sent by then stays queued for
+next launch), and — web only — on `pagehide`. Each request carries at most
+**100 events**; a larger queue is sent in several requests, one after the
+other, until it is empty or one fails. The `pagehide` flush is the
+exception: it sends one request with `keepalive`, cut to at most **60 KiB**
+because browsers refuse a larger keepalive body, and leaves the rest for
+the next page. Every request is bounded by a
 **10-second** timeout, treated the same as a network failure. A failed
 send keeps its events queued and backs off before retrying: **30 seconds**
 the first time, doubling on each failure after that, capped at **10
@@ -257,16 +269,25 @@ one batch sent before the opt-out can still land. The queued events
 themselves are deleted at once on the web; under Tauri, the worker clears
 them right after — once any request already in flight has finished — or,
 if the app quits before that, at the next launch. Either way, nothing
-still queued at the moment of opting out is ever sent. `setOptOut(false)`
-opts back in; nothing already deleted is replayed.
+still queued at the moment of opting out is ever sent — not even if the
+install opts straight back in before the worker gets round to clearing,
+and not even an event that was already on its way to the worker when the
+opt-out landed. `setOptOut(false)` opts back in; nothing already deleted
+is replayed.
+
+On the web, every tab of the same origin shares the one queue and opt-out
+in `localStorage`, without coordinating: two tabs writing the queue at
+once can lose an event, and an opt-out in one tab reaches another at that
+tab's next `track`.
 
 ### Event names
 
-An event name is trimmed and must come out non-empty and at most 200
-characters; an invalid or oversized name — or an event too large for the
-queue — is dropped, with a warning that names the event but never its
+An event name is trimmed and must come out non-empty, at most 200
+characters, and not one of PostHog's identity events; an invalid name — or
+an event too large for the queue — is dropped. Under Tauri the drop is
+logged at `warn`, naming the event (cut to 64 characters) but never its
 properties, so nothing a caller passed as a property value ends up in a
-log line.
+log line; on the web it is dropped silently.
 
 A panic in the worker or the network stack is caught and answered as a
 dropped send, the same as any other failure — but only when the app is
