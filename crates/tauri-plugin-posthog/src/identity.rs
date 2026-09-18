@@ -17,6 +17,11 @@ const ID_FILE: &str = "posthog-id";
 /// Its mere presence means the install opted out; contents don't matter.
 const OPT_OUT_FILE: &str = "posthog-opt-out";
 
+/// Made at every opt-out and removed only once the queue has been cleared
+/// for it, so an opt-out undone before the worker got round to clearing
+/// still clears at the next launch.
+const CLEAR_PENDING_FILE: &str = "posthog-clear-pending";
+
 /// The install's anonymous id, made once and remembered in `dir`. A
 /// missing, unreadable, or garbage id file is treated the same: a fresh id
 /// is generated and (best-effort) saved in its place. If `dir` can't be
@@ -84,6 +89,34 @@ pub fn set_opted_out(dir: &Path, out: bool) -> std::io::Result<()> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
         }
+    }
+}
+
+/// Whether an opt-out's clear is still owed.
+#[must_use]
+pub fn clear_pending(dir: &Path) -> bool {
+    dir.join(CLEAR_PENDING_FILE).exists()
+}
+
+/// Records that an opt-out's clear is owed.
+///
+/// # Errors
+///
+/// Returns an error if `dir` or the marker can't be created.
+pub fn set_clear_pending(dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    File::create(dir.join(CLEAR_PENDING_FILE)).map(drop)
+}
+
+/// Records that the owed clear has happened.
+///
+/// # Errors
+///
+/// Returns an error if the marker exists but can't be removed.
+pub fn remove_clear_pending(dir: &Path) -> std::io::Result<()> {
+    match fs::remove_file(dir.join(CLEAR_PENDING_FILE)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
     }
 }
 

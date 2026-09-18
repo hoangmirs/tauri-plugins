@@ -3,7 +3,6 @@
 //! failed send before trying again.
 
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::event::{batch_body, Base, Event};
@@ -97,8 +96,8 @@ pub fn batch_url(host: &str) -> String {
 }
 
 /// Sends everything currently in `queue`, in batches of at most [`BATCH`]
-/// events, to `{host}/batch/` (via `batch_url`), checking `stop` before
-/// each batch: once it is set (the install opted out mid-flush) no further
+/// events, to `{host}/batch/` (via `batch_url`), asking `stop` before
+/// each batch: once it says yes (the install opted out mid-flush) no further
 /// batch goes out, and the events sent so far are returned as a success —
 /// only the one batch already on the wire can still land. Stops and returns `Err` on
 /// the first failed batch, leaving it and everything after it queued; each
@@ -117,13 +116,13 @@ pub fn flush(
     host: &str,
     api_key: &str,
     base: &Base,
-    stop: &AtomicBool,
+    stop: &dyn Fn() -> bool,
 ) -> Result<usize, String> {
     let url = batch_url(host);
     let mut sent = 0usize;
 
     loop {
-        if stop.load(Ordering::SeqCst) {
+        if stop() {
             return Ok(sent);
         }
         let batch: Vec<Event> = queue.peek(BATCH);
@@ -288,7 +287,7 @@ mod tests {
             "https://us.i.posthog.com",
             "k",
             &base(),
-            &AtomicBool::new(false),
+            &|| false,
         )
         .unwrap();
 
@@ -310,7 +309,7 @@ mod tests {
             "https://us.i.posthog.com",
             "k",
             &base(),
-            &AtomicBool::new(false),
+            &|| false,
         )
         .unwrap_err();
 
@@ -351,7 +350,7 @@ mod tests {
             "https://us.i.posthog.com",
             "k",
             &base(),
-            &stop,
+            &|| stop.load(Ordering::SeqCst),
         )
         .unwrap();
 
@@ -372,7 +371,7 @@ mod tests {
             "https://us.i.posthog.com",
             "k",
             &base(),
-            &AtomicBool::new(false),
+            &|| false,
         )
         .unwrap();
 

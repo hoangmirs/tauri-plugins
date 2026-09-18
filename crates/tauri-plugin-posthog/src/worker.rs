@@ -2,12 +2,13 @@
 //! reach it. Commands never touch the queue file: they send a `Msg` over a
 //! channel, and the worker handles each one in turn, so a capture, a
 //! flush, and a clear can never interleave on disk. The opt-out is the one
-//! thing both sides hold, as a shared flag, because it has to take effect
-//! the moment the command returns, not when the worker gets round to it.
+//! thing both sides hold, as a shared [`OptOut`], because it has to take
+//! effect the moment the command returns, not when the worker gets round
+//! to it.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Map, Value};
@@ -20,13 +21,16 @@ use crate::send::{Backoff, Post};
 
 /// What a command asks the worker to do.
 pub(crate) enum Msg {
-    Capture(Event),
+    /// An event, and the opt-out epoch the command saw before it checked
+    /// the flag: an event from before an opt-out is dropped even when the
+    /// worker only reads it after an opt-in.
+    Capture(Event, u64),
     /// Flush now if the backoff allows; `done` hears back once the attempt
     /// (or the decision not to make one) is over.
     Flush(Option<std::sync::mpsc::Sender<()>>),
-    /// The opt-out flag changed. The flag, not the message, is the truth:
-    /// the worker clears the queue if the install is opted out by the time
-    /// it looks, so toggles that arrive out of order still end right.
+    /// The opt-out changed. Only a nudge: the worker catches up on the
+    /// shared [`OptOut`] before every message anyway, so this just makes it
+    /// look sooner.
     OptOutChanged,
 }
 
@@ -78,6 +82,40 @@ const PLATFORM: &str = if cfg!(target_os = "ios") {
     "unknown"
 };
 
+/// The opt-out as both sides see it. `epoch` counts opt-outs, so the worker
+/// can tell that one happened even when the flag has already been turned
+/// back off by the time it looks.
+pub(crate) struct OptOut {
+    opted_out: AtomicBool,
+    epoch: AtomicU64,
+    /// Serialises toggles, and the worker's removal of the clear-pending
+    /// marker against them, so the flag, the epoch and the markers always
+    /// end the way the later one left them.
+    toggling: Mutex<()>,
+}
+
+impl OptOut {
+    fn new(opted_out: bool) -> Self {
+        OptOut {
+            opted_out: AtomicBool::new(opted_out),
+            epoch: AtomicU64::new(0),
+            toggling: Mutex::new(()),
+        }
+    }
+
+    fn is_set(&self) -> bool {
+        self.opted_out.load(Ordering::SeqCst)
+    }
+
+    fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    fn lock(&self) -> MutexGuard<'_, ()> {
+        self.toggling.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// The data directory and the queue inside it. Absent when the app's data
 /// directory could not be resolved or created, which turns capture into a
 /// no-op rather than an error.
@@ -94,14 +132,16 @@ pub(crate) struct Worker {
     base: Arc<Base>,
     backoff: Backoff,
     flush_at: usize,
-    opted_out: Arc<AtomicBool>,
+    opt_out: Arc<OptOut>,
+    /// The opt-out epoch the queue has been cleared for. Behind the shared
+    /// epoch means a clear is owed.
+    acted: u64,
 }
 
 impl Worker {
     /// Reads the opt-out and the install id from `dir`. An opt-out found on
-    /// disk also clears the queue, in case a clear after an earlier opt-out
-    /// never happened, so nothing an opted-out user left behind is ever
-    /// sent.
+    /// disk, or a clear still owed for one since undone, clears the queue,
+    /// so nothing queued before an opt-out is ever sent.
     pub(crate) fn new(settings: Settings, dir: Option<PathBuf>, post: Arc<dyn Post>) -> Self {
         let store = dir.map(|dir| Store {
             queue: Arc::new(Queue::open(dir.join(QUEUE_FILE), settings.limits)),
@@ -110,12 +150,16 @@ impl Worker {
         let opted_out = store
             .as_ref()
             .is_some_and(|store| crate::identity::opted_out(&store.dir));
+        let owed = opted_out
+            || store
+                .as_ref()
+                .is_some_and(|store| crate::identity::clear_pending(&store.dir));
         let distinct_id = store
             .as_ref()
             .map(|store| crate::identity::install_id(&store.dir))
             .unwrap_or_default();
 
-        let worker = Worker {
+        let mut worker = Worker {
             store,
             post,
             host: settings.host.into(),
@@ -129,19 +173,20 @@ impl Worker {
             }),
             backoff: Backoff::new(),
             flush_at: settings.flush_at,
-            opted_out: Arc::new(AtomicBool::new(opted_out)),
+            opt_out: Arc::new(OptOut::new(opted_out)),
+            // Never the epoch, so the first catch-up clears.
+            acted: if owed { u64::MAX } else { 0 },
         };
-        worker.clear_if_opted_out();
+        worker.catch_up();
         worker
     }
 
-    /// A `Handle` sharing this worker's opt-out flag, sending on `tx`.
+    /// A `Handle` sharing this worker's opt-out, sending on `tx`.
     pub(crate) fn handle_for(&self, tx: Sender<Msg>) -> Handle {
         Handle {
             tx,
             dir: self.store.as_ref().map(|store| store.dir.clone()),
-            opted_out: Arc::clone(&self.opted_out),
-            toggling: Mutex::new(()),
+            opt_out: Arc::clone(&self.opt_out),
             warned: AtomicBool::new(false),
         }
     }
@@ -149,15 +194,16 @@ impl Worker {
     /// Handles one message to completion, flush included, before the next
     /// is looked at: that ordering is what keeps the queue file single-owner.
     pub(crate) async fn handle(&mut self, msg: Msg) {
+        self.catch_up();
         match msg {
-            Msg::Capture(event) => self.capture(&event).await,
+            Msg::Capture(event, epoch) => self.capture(&event, epoch).await,
             Msg::Flush(done) => {
                 self.try_flush().await;
                 if let Some(done) = done {
                     let _ = done.send(());
                 }
             }
-            Msg::OptOutChanged => self.clear_if_opted_out(),
+            Msg::OptOutChanged => {}
         }
     }
 
@@ -175,18 +221,19 @@ impl Worker {
                     Some(msg) => self.handle(msg).await,
                     None => return,
                 },
-                _ = tick.tick() => self.try_flush().await,
+                _ = tick.tick() => {
+                    self.catch_up();
+                    self.try_flush().await;
+                }
             }
         }
     }
 
-    fn is_opted_out(&self) -> bool {
-        self.opted_out.load(Ordering::SeqCst)
-    }
-
-    async fn capture(&mut self, event: &Event) {
-        // A capture sent just before an opt-out is still dropped here.
-        if self.is_opted_out() {
+    /// Queues `event` unless the install is opted out, or it was captured
+    /// before an opt-out the queue has since been cleared for.
+    async fn capture(&mut self, event: &Event, epoch: u64) {
+        self.catch_up();
+        if self.opt_out.is_set() || epoch != self.acted {
             return;
         }
         let Some(store) = &self.store else {
@@ -211,16 +258,34 @@ impl Worker {
         }
     }
 
-    fn clear_if_opted_out(&self) {
-        if !self.is_opted_out() {
+    /// Clears the queue if the install is opted out, or opted out at any
+    /// point since the last clear. Only a clear that worked moves `acted`
+    /// on and drops the clear-pending marker, so one that failed is tried
+    /// again, now and at the next launch.
+    fn catch_up(&mut self) {
+        let epoch = self.opt_out.epoch();
+        let owed = epoch != self.acted;
+        if !owed && !self.opt_out.is_set() {
             return;
         }
-        if let Some(store) = &self.store {
-            if store.queue.is_empty() {
-                return;
-            }
+        let Some(store) = &self.store else {
+            self.acted = epoch;
+            return;
+        };
+        if !store.queue.is_empty() {
             if let Err(e) = store.queue.clear() {
                 log::warn!("could not clear the analytics queue: {e}");
+                return;
+            }
+        }
+        if owed {
+            self.acted = epoch;
+            let _toggling = self.opt_out.lock();
+            // An opt-out since `epoch` still owes its own clear.
+            if self.opt_out.epoch() == epoch {
+                if let Err(e) = crate::identity::remove_clear_pending(&store.dir) {
+                    log::warn!("could not note the analytics queue as cleared: {e}");
+                }
             }
         }
     }
@@ -229,11 +294,11 @@ impl Worker {
     /// out, or a recent failure is still being waited out. The blocking
     /// send runs on its own thread so a panic there comes back as a
     /// `JoinError`, which counts as one more failure rather than the end of
-    /// the worker. It checks the opt-out flag between batches, so an
-    /// opt-out mid-flush lets at most the batch on the wire land.
+    /// the worker. Between batches it stops for an opt-out, even one
+    /// already undone, so at most the batch on the wire lands.
     async fn try_flush(&mut self) {
-        if self.is_opted_out() {
-            self.clear_if_opted_out();
+        self.catch_up();
+        if self.opt_out.is_set() {
             return;
         }
         let Some(store) = &self.store else {
@@ -248,8 +313,10 @@ impl Worker {
         let host = Arc::clone(&self.host);
         let api_key = Arc::clone(&self.api_key);
         let base = Arc::clone(&self.base);
-        let stop = Arc::clone(&self.opted_out);
+        let opt_out = Arc::clone(&self.opt_out);
+        let start = self.acted;
         let sent = tauri::async_runtime::spawn_blocking(move || {
+            let stop = || opt_out.is_set() || opt_out.epoch() != start;
             crate::send::flush(&queue, post.as_ref(), &host, &api_key, &base, &stop)
         })
         .await;
@@ -268,19 +335,16 @@ impl Worker {
                 log::warn!("sending analytics events did not finish, retrying in {wait:?}: {e}");
             }
         }
-        self.clear_if_opted_out();
+        self.catch_up();
     }
 }
 
-/// What the commands hold: the way to the worker, the shared opt-out flag,
-/// and the data dir to persist that flag in.
+/// What the commands hold: the way to the worker, the shared opt-out, and
+/// the data dir to persist it in.
 pub(crate) struct Handle {
     tx: Sender<Msg>,
     dir: Option<PathBuf>,
-    opted_out: Arc<AtomicBool>,
-    /// Serialises opt-out toggles, so two in quick succession leave the
-    /// flag and its file the way the later one set them.
-    toggling: Mutex<()>,
+    opt_out: Arc<OptOut>,
     /// Set once a capture has been dropped for want of a worker, so a busy
     /// or dead worker costs one log line, not one per event.
     warned: AtomicBool,
@@ -290,6 +354,9 @@ impl Handle {
     /// Queues `name` unless the install is opted out. Never blocks: a full
     /// channel or a dead worker drops the event.
     pub(crate) fn capture(&self, name: &str, properties: Map<String, Value>) {
+        // The epoch first: an opt-out that lands between the two reads
+        // then either shows in the flag or makes this epoch stale.
+        let epoch = self.opt_out.epoch();
         if self.is_opted_out() {
             return;
         }
@@ -300,7 +367,7 @@ impl Handle {
             );
             return;
         };
-        if self.tx.try_send(Msg::Capture(event)).is_err()
+        if self.tx.try_send(Msg::Capture(event, epoch)).is_err()
             && !self.warned.swap(true, Ordering::Relaxed)
         {
             log::warn!("analytics is not keeping up; dropping events until it does");
@@ -314,14 +381,23 @@ impl Handle {
 
     /// Takes effect before it returns: the flag is set (so capture stops
     /// and an in-flight flush stops after its current batch) and saved to
-    /// disk here, not in the worker. The worker is only told so it can
-    /// clear the queue; if the message cannot be sent, the worker still
-    /// sees the flag at its next flush attempt, and the next start clears
-    /// the queue for an opt-out it finds on disk.
+    /// disk here, not in the worker. An opt-out also bumps the epoch and
+    /// leaves a clear-pending marker, which only the worker's clear
+    /// removes, so opting straight back in never saves what was queued:
+    /// the worker clears for the epoch whenever it next looks, and the next
+    /// launch clears for the marker if it never did.
     pub(crate) fn set_opt_out(&self, out: bool) {
         {
-            let _toggling = self.toggling.lock().unwrap_or_else(PoisonError::into_inner);
-            self.opted_out.store(out, Ordering::SeqCst);
+            let _toggling = self.opt_out.lock();
+            if out {
+                if let Some(dir) = &self.dir {
+                    if let Err(e) = crate::identity::set_clear_pending(dir) {
+                        log::warn!("could not save the analytics opt-out: {e}");
+                    }
+                }
+                self.opt_out.epoch.fetch_add(1, Ordering::SeqCst);
+            }
+            self.opt_out.opted_out.store(out, Ordering::SeqCst);
             if let Some(dir) = &self.dir {
                 if let Err(e) = crate::identity::set_opted_out(dir, out) {
                     log::warn!("could not save the analytics opt-out: {e}");
@@ -332,7 +408,7 @@ impl Handle {
     }
 
     pub(crate) fn is_opted_out(&self) -> bool {
-        self.opted_out.load(Ordering::SeqCst)
+        self.opt_out.is_set()
     }
 
     /// See [`flush_before_exit`].
@@ -446,6 +522,36 @@ mod tests {
         }
     }
 
+    /// Opts out and straight back in from inside its first post, the way a
+    /// player can flick the switch while a batch is on the wire.
+    #[derive(Default)]
+    struct ToggleDuringFirstPost {
+        handle: Mutex<Option<Handle>>,
+        bodies: Mutex<Vec<Value>>,
+    }
+
+    impl Post for ToggleDuringFirstPost {
+        fn post(&self, _url: &str, body: &Value) -> Result<(), String> {
+            self.bodies.lock().unwrap().push(body.clone());
+            if let Some(handle) = self.handle.lock().unwrap().take() {
+                handle.set_opt_out(true);
+                handle.set_opt_out(false);
+            }
+            Ok(())
+        }
+    }
+
+    /// Every event name `post` was asked to send, in order.
+    fn sent_names(bodies: &Mutex<Vec<Value>>) -> Vec<String> {
+        bodies
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|b| b["batch"].as_array().unwrap().clone())
+            .map(|e| e["event"].as_str().unwrap().to_string())
+            .collect()
+    }
+
     fn settings() -> Settings {
         Settings {
             api_key: "phc_test".to_string(),
@@ -488,7 +594,10 @@ mod tests {
 
     async fn capture(worker: &mut Worker, n: usize) {
         for i in 0..n {
-            worker.handle(Msg::Capture(event(&format!("e{i}")))).await;
+            let epoch = worker.opt_out.epoch();
+            worker
+                .handle(Msg::Capture(event(&format!("e{i}")), epoch))
+                .await;
         }
     }
 
@@ -604,6 +713,72 @@ mod tests {
         assert!(queue(dir.path()).is_empty());
     }
 
+    #[tokio::test]
+    async fn opting_out_and_straight_back_in_sends_nothing_from_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let post = FakePost::scripted(vec![]);
+        let (mut worker, handle, mut rx) = worker(dir.path(), &post);
+
+        // Queued on disk, and waiting in the channel, before the opt-out.
+        capture(&mut worker, 3).await;
+        handle.capture("in-the-channel", Map::new());
+        handle.set_opt_out(true);
+        handle.set_opt_out(false);
+        handle.capture("after", Map::new());
+        pump(&mut worker, &mut rx).await;
+        worker.handle(Msg::Flush(None)).await;
+
+        assert_eq!(sent_names(&post.bodies), vec!["after"]);
+    }
+
+    #[tokio::test]
+    async fn opting_out_and_back_in_mid_flush_lets_only_the_batch_on_the_wire_land() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..250 {
+            queue(dir.path()).push(&event(&format!("e{i}"))).unwrap();
+        }
+        let post = Arc::new(ToggleDuringFirstPost::default());
+        let post_dyn: Arc<dyn Post> = post.clone();
+        let (mut worker, handle, _rx) = setup(Some(dir.path()), post_dyn);
+        *post.handle.lock().unwrap() = Some(handle);
+
+        worker.handle(Msg::Flush(None)).await;
+
+        assert_eq!(sent_names(&post.bodies).len(), 100);
+        assert!(queue(dir.path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn opting_out_and_back_in_then_quitting_leaves_nothing_for_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let post = FakePost::scripted(vec![]);
+        let (mut worker, handle, rx) = worker(dir.path(), &post);
+        capture(&mut worker, 3).await;
+
+        handle.set_opt_out(true);
+        handle.set_opt_out(false);
+        drop((worker, handle, rx));
+
+        let (_worker, _, _) = self::worker(dir.path(), &post);
+        assert!(queue(dir.path()).is_empty());
+        assert!(!dir.path().join("posthog-clear-pending").exists());
+    }
+
+    #[tokio::test]
+    async fn a_flush_before_the_worker_hears_of_an_opt_out_sends_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let post = FakePost::scripted(vec![]);
+        let (mut worker, handle, _rx) = worker(dir.path(), &post);
+        capture(&mut worker, 3).await;
+
+        handle.set_opt_out(true);
+        handle.set_opt_out(false);
+        worker.try_flush().await;
+
+        assert!(post.batch_sizes().is_empty());
+        assert!(queue(dir.path()).is_empty());
+    }
+
     #[test]
     fn opting_out_mid_flush_takes_effect_at_once_and_stops_after_the_batch_on_the_wire() {
         let dir = tempfile::tempdir().unwrap();
@@ -690,7 +865,7 @@ mod tests {
         let mut props = Map::new();
         props.insert("blob".to_string(), Value::String("x".repeat(4096)));
         worker
-            .handle(Msg::Capture(Event::new("huge", props).unwrap()))
+            .handle(Msg::Capture(Event::new("huge", props).unwrap(), 0))
             .await;
         capture(&mut worker, 1).await;
 
@@ -729,7 +904,7 @@ mod tests {
             .unwrap();
         assert_eq!(post.batch_sizes(), vec![1]);
 
-        tx.send(Msg::Capture(event("later"))).await.unwrap();
+        tx.send(Msg::Capture(event("later"), 0)).await.unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while post.batch_sizes().len() < 2 {
             assert!(Instant::now() < deadline, "no tick flushed the queue");
