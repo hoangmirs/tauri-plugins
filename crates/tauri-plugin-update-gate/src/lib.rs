@@ -59,7 +59,10 @@ async fn check<R: Runtime>(
     lang: Option<String>,
 ) -> Result<Gate, String> {
     let running = app.package_info().version.to_string();
-    let lang = resolve_language(lang.as_deref(), env_language().as_deref());
+    let lang = resolve_language(
+        lang.as_deref(),
+        env_language(|key| std::env::var(key).ok()).as_deref(),
+    );
     Ok(source.gate(&running, &lang, PLATFORM).await)
 }
 
@@ -75,15 +78,15 @@ fn resolve_language(caller: Option<&str>, env: Option<&str>) -> String {
         .unwrap_or_else(|| "en".to_string())
 }
 
-/// Reads the OS's language hint, unparsed, from the usual POSIX locale
-/// environment variables. Desktop only: mobile targets typically leave
-/// these unset, so `resolve_language`'s `"en"` fallback is what actually
-/// runs there whenever the caller doesn't supply its own language.
-fn env_language() -> Option<String> {
-    std::env::var("LANG")
-        .or_else(|_| std::env::var("LC_ALL"))
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .ok()
+/// Reads the OS's language hint, unparsed, from the POSIX locale variables
+/// through `var`, in the order POSIX gives them for messages: `LC_ALL`
+/// overrides everything, `LANG` is only the default. An empty variable
+/// counts as unset, as POSIX says. Desktop only: mobile targets typically
+/// leave these unset.
+fn env_language(var: impl Fn(&str) -> Option<String>) -> Option<String> {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .find_map(|key| var(key).filter(|v| !v.is_empty()))
 }
 
 /// Pulls a lowercase two-letter language code out of a locale-ish string —
@@ -101,7 +104,40 @@ fn parse_language(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_language;
+    use super::{env_language, resolve_language};
+
+    /// An environment holding only `vars`, so the lookup order can be tested
+    /// without touching the real one.
+    fn env<'a>(vars: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |key| {
+            vars.iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_string())
+        }
+    }
+
+    #[test]
+    fn the_environment_is_read_in_posix_order() {
+        let all = [
+            ("LANG", "en_US"),
+            ("LC_MESSAGES", "fr_FR"),
+            ("LC_ALL", "vi_VN"),
+        ];
+        assert_eq!(env_language(env(&all)).as_deref(), Some("vi_VN"));
+        let no_all = [("LANG", "en_US"), ("LC_MESSAGES", "fr_FR")];
+        assert_eq!(env_language(env(&no_all)).as_deref(), Some("fr_FR"));
+        assert_eq!(
+            env_language(env(&[("LANG", "en_US")])).as_deref(),
+            Some("en_US")
+        );
+        assert_eq!(env_language(env(&[])), None);
+    }
+
+    #[test]
+    fn an_empty_variable_counts_as_unset() {
+        let vars = [("LANG", "en_US"), ("LC_ALL", "")];
+        assert_eq!(env_language(env(&vars)).as_deref(), Some("en_US"));
+    }
 
     #[test]
     fn the_callers_language_wins_over_the_environment() {
