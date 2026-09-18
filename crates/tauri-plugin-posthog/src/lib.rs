@@ -2,3 +2,4 @@
 //! from a queue on disk.
 
 pub mod event;
+pub mod queue;

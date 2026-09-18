@@ -26,6 +26,7 @@ tauri-plugin = { version = "=2.6.3", features = ["build"] }
 
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
