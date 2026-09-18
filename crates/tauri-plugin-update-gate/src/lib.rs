@@ -1,14 +1,16 @@
 //! `tauri-plugin-update-gate`: reads a JSON document over HTTP and tells an
 //! app whether the installed copy is too old to run.
 
-pub mod decide;
-pub mod source;
+mod decide;
+mod source;
 
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{AppHandle, Manager, Runtime, State as Managed};
 
-use decide::Gate;
-use source::{Config, Source};
+use source::Source;
+
+pub use decide::{Gate, State};
+pub use source::Config;
 
 /// This build's OS, in the vocabulary `decide::Document::url` keys are
 /// written in. A target this list doesn't know about still compiles; the

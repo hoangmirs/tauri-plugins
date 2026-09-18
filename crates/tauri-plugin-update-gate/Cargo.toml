@@ -22,6 +22,7 @@ thiserror.workspace = true
 tauri-plugin = { version = "=2.6.3", features = ["build"] }
 
 [dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
