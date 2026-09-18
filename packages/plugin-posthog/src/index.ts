@@ -12,8 +12,9 @@ import type { WebConfig } from "./web.ts";
 
 /**
  * Configures the web path: the project API key, optionally a non-US (or
- * self-hosted) host, and the app's own version. A no-op under Tauri, where
- * Rust already holds its own config from `posthog::Config` at `init`.
+ * self-hosted) host, and the app's own version — then starts sending
+ * whatever an earlier page left queued. A no-op under Tauri, where Rust
+ * already holds its own config from `posthog::Config` at `init`.
  */
 export function init(config: WebConfig): void {
   if (isTauri()) return;

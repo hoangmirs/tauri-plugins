@@ -134,6 +134,29 @@ function queueOf(store: FakeStorage): StoredEvent[] {
   return raw === undefined ? [] : (JSON.parse(raw) as StoredEvent[]);
 }
 
+/** `n` already-shaped events, named `e0`…, each padded by `pad` bytes. */
+function seeded(n: number, pad = 0): StoredEvent[] {
+  return Array.from({ length: n }, (_, i) => ({
+    uuid: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    event: `e${i}`,
+    timestamp: new Date().toISOString(),
+    properties: { distinct_id: "install-1", ...(pad > 0 ? { pad: "x".repeat(pad) } : {}) },
+  }));
+}
+
+/** Every batch size, in request order. */
+function batchSizes(calls: FetchCall[]): number[] {
+  return calls.map((call) => (JSON.parse(call.init.body as string) as { batch: unknown[] }).batch.length);
+}
+
+/** Lets every promise already queued run to its end — one macrotask turn,
+ * no timer, no real wait. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // Tauri path
 // ---------------------------------------------------------------------------
@@ -411,25 +434,16 @@ test("on the web, flush sends at most 100 events per request", async () => {
   const calls = setupFetch(() => ok());
   try {
     init({ apiKey: "phc_test" });
-    // Seed 150 already-shaped events directly, bypassing `track`'s own
-    // 20-event auto-flush so this test only exercises the 100-per-request
-    // cap, not the threshold trigger (covered separately).
-    const seeded = Array.from({ length: 150 }, (_, i) => ({
-      uuid: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
-      event: `e${i}`,
-      timestamp: new Date().toISOString(),
-      properties: { distinct_id: "install-1" },
-    }));
-    store.setItem(QUEUE_KEY, JSON.stringify(seeded));
+    // Seeded directly, bypassing `track`'s own 20-event auto-flush so this
+    // test only exercises the 100-per-request cap.
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(150)));
 
     await flush();
 
-    assert.equal(calls.length, 1);
-    const body = JSON.parse(calls[0]?.init.body as string) as { batch: unknown[] };
-    assert.equal(body.batch.length, 100);
-    const remaining = queueOf(store);
-    assert.equal(remaining.length, 50);
-    assert.equal(remaining[0]?.event, "e100");
+    assert.deepEqual(batchSizes(calls), [100, 50]);
+    const first = JSON.parse(calls[1]?.init.body as string) as { batch: StoredEvent[] };
+    assert.equal(first.batch[0]?.event, "e100");
+    assert.equal(queueOf(store).length, 0);
   } finally {
     await teardownWeb();
     teardownFetch();
@@ -614,14 +628,13 @@ test("overlapping flush() calls are serialized: no event is lost or sent twice",
     assert.equal(calls.length, 1, "the second flush must wait its turn, not overlap the first");
 
     resolveNext(200); // the first request succeeds, sending [a, b]
-    await first;
-    // the second attempt's own turn now runs
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(calls.length, 2, "the second flush should now have made its own request");
+    await settle();
+    assert.equal(calls.length, 2, "the first flush drains on to [c], one request at a time");
 
     resolveNext(200); // the second request succeeds, sending [c]
+    await first;
     await second;
+    assert.equal(calls.length, 2, "the second flush finds nothing left to send");
 
     assert.equal(queueOf(store).length, 0, "every event should have been sent");
     const sentEvents = calls.flatMap(
@@ -654,6 +667,9 @@ test("a successful flush leaves exactly the events tracked during its request", 
     await track("b");
 
     resolveNext(200);
+    await settle();
+    assert.equal(calls.length, 2, "the flush drains on to [b]");
+    resolveNext(500); // and that one fails, so [b] must still be queued
     await pending;
 
     const remaining = queueOf(store);
@@ -830,5 +846,180 @@ test("the web $lib_version constant matches package.json's version", async () =>
     assert.equal(queue[0]?.properties.$lib_version, pkg.version);
   } finally {
     await teardownWeb();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Final-review fixes
+// ---------------------------------------------------------------------------
+
+test("on the web, one event over the byte limit is dropped and the queue survives", async () => {
+  const store = await setupWeb();
+  setupFetch(() => serverError());
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    await track("b");
+    await track("huge", { blob: "x".repeat(1_100_000) });
+    assert.deepEqual(
+      queueOf(store).map((e) => e.event),
+      ["a", "b"],
+    );
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, init flushes a queue left by an earlier page, once", async () => {
+  const store = await setupWeb();
+  const calls = setupFetch(() => ok());
+  try {
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(3)));
+    init({ apiKey: "phc_test" });
+    await settle();
+    assert.deepEqual(batchSizes(calls), [3]);
+    assert.equal(queueOf(store).length, 0);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, init with nothing queued makes no request", async () => {
+  await setupWeb();
+  const calls = setupFetch(() => ok());
+  try {
+    init({ apiKey: "phc_test" });
+    await settle();
+    assert.equal(calls.length, 0);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, identity events are refused and person properties stripped", async () => {
+  const store = await setupWeb();
+  try {
+    init({ apiKey: "phc_test" });
+    for (const name of ["$identify", "$create_alias", "$merge_dangerously", "$groupidentify"]) {
+      // eslint-disable-next-line no-await-in-loop
+      await track(name);
+    }
+    assert.equal(store.raw(QUEUE_KEY), undefined);
+
+    const person = { name: "someone" };
+    await track("x", {
+      $set: person,
+      $set_once: person,
+      $unset: ["name"],
+      $groups: { school: "one" },
+      $anon_distinct_id: "someone-else",
+      game: "caro",
+    });
+    const properties = queueOf(store)[0]?.properties ?? {};
+    for (const key of ["$set", "$set_once", "$unset", "$groups", "$anon_distinct_id"]) {
+      assert.equal(key in properties, false, key);
+    }
+    assert.equal(properties.game, "caro");
+  } finally {
+    await teardownWeb();
+  }
+});
+
+test("on the web, ids are still v4 UUIDs where crypto.randomUUID is missing", async () => {
+  const store = await setupWeb();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const real = globalThis.crypto;
+  Object.defineProperty(globalThis, "crypto", {
+    value: { getRandomValues: <T extends ArrayBufferView>(array: T): T => real.getRandomValues(array as never) },
+    configurable: true,
+  });
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    const queue = queueOf(store);
+    assert.equal(queue.length, 1);
+    assert.match(queue[0]?.uuid ?? "", UUID_V4);
+    assert.match(store.raw(ID_KEY) ?? "", UUID_V4);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+    await teardownWeb();
+  }
+});
+
+test("on the web, the pagehide flush keeps its body within 60 KiB", async () => {
+  const store = await setupWeb();
+  const calls = setupFetch(() => ok());
+  try {
+    init({ apiKey: "phc_test" });
+    await track("registers-pagehide");
+    // ~110 KiB in all: well past what a keepalive request may carry.
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(100, 1_024)));
+
+    window.dispatchEvent(new Event("pagehide"));
+    await settle();
+
+    assert.equal(calls.length, 1, "one keepalive request, no draining");
+    assert.equal(calls[0]?.init.keepalive, true);
+    const body = calls[0]?.init.body as string;
+    assert.ok(new TextEncoder().encode(body).length <= 60 * 1024);
+    const sent = batchSizes(calls)[0] ?? 0;
+    assert.ok(sent > 0 && sent < 100, `sent ${sent}`);
+    assert.equal(queueOf(store).length, 100 - sent);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, a flush drains the queue while each batch succeeds", async () => {
+  const store = await setupWeb();
+  const calls = setupFetch(() => ok());
+  try {
+    init({ apiKey: "phc_test" });
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(250)));
+    await flush();
+    assert.deepEqual(batchSizes(calls), [100, 100, 50]);
+    assert.equal(queueOf(store).length, 0);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, a draining flush stops at the first failure", async () => {
+  const store = await setupWeb();
+  const answers = [200, 500];
+  const calls = setupFetch(() => new Response(null, { status: answers.shift() ?? 200 }));
+  try {
+    init({ apiKey: "phc_test" });
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(250)));
+    await flush();
+    assert.deepEqual(batchSizes(calls), [100, 100]);
+    assert.equal(queueOf(store).length, 150);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, a draining flush stops at an opt-out, even one undone at once", async () => {
+  const store = await setupWeb();
+  const calls = setupFetch(async () => {
+    await setOptOut(true);
+    await setOptOut(false);
+    return ok();
+  });
+  try {
+    init({ apiKey: "phc_test" });
+    store.setItem(QUEUE_KEY, JSON.stringify(seeded(250)));
+    await flush();
+    assert.equal(calls.length, 1);
+    assert.equal(queueOf(store).length, 0);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
   }
 });

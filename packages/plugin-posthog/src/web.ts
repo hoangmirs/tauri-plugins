@@ -5,9 +5,13 @@
 //! `PostHog` sees identical payloads whichever side sent them.
 //!
 //! Every exported function is a silent no-op on any failure: a private
-//! browsing `localStorage` that throws on every access, a `crypto` that is
-//! missing `randomUUID`, or a `fetch` that rejects, all leave the caller
-//! with a resolved promise and, at worst, an unsent queue.
+//! browsing `localStorage` that throws on every access, a missing `crypto`,
+//! or a `fetch` that rejects, all leave the caller with a resolved promise
+//! and, at worst, an unsent queue.
+//!
+//! Tabs of one origin share the one queue in `localStorage` and do not
+//! coordinate over it, so an event can be lost between two tabs writing at
+//! once.
 
 /** What a caller passes to {@link init}. `host` defaults to `PostHog`'s US
  * cloud; `appVersion` — the app's own version, not this package's — is
@@ -50,6 +54,14 @@ const DEFAULT_HOST = "https://us.i.posthog.com";
  * points, like Rust's `chars().count()`. */
 const MAX_EVENT_NAME_LEN = 200;
 
+/** Event names `PostHog` treats as tying an install to a person — mirrors
+ * `event::IDENTITY_EVENTS`. */
+const IDENTITY_EVENTS = new Set(["$identify", "$create_alias", "$merge_dangerously", "$groupidentify"]);
+
+/** Properties `PostHog` reads as person or group data — mirrors
+ * `event::IDENTITY_PROPERTIES`. */
+const IDENTITY_PROPERTIES = new Set(["$set", "$set_once", "$unset", "$groups", "$anon_distinct_id"]);
+
 /** Flush once this many events are queued — mirrors the Rust worker's
  * `flush_at`. */
 const FLUSH_AT = 20;
@@ -64,6 +76,10 @@ const MAX_BATCH = 100;
  * the oldest events are dropped first. */
 const MAX_QUEUE_EVENTS = 1_000;
 const MAX_QUEUE_BYTES = 1_048_576;
+
+/** Browsers refuse a `keepalive` request whose body is over 64 KiB; this
+ * leaves room under that. */
+const MAX_KEEPALIVE_BYTES = 60 * 1024;
 
 const QUEUE_KEY = "posthog-plugin:queue";
 const ID_KEY = "posthog-plugin:id";
@@ -145,7 +161,8 @@ function backoffSucceeded(): void {
 
 /**
  * Configures the web path: the project API key, optionally a non-US (or
- * self-hosted) host, and the app's own version for `$app_version`. Under
+ * self-hosted) host, and the app's own version for `$app_version` — then
+ * flushes once if an earlier page left anything queued. Under
  * Tauri this is never reached — the facade routes to Rust instead, which
  * already holds its own config — so calling it there would simply be
  * config nobody reads.
@@ -156,6 +173,12 @@ export function init(webConfig: WebConfig): void {
     host: webConfig.host ?? DEFAULT_HOST,
     ...(webConfig.appVersion !== undefined ? { appVersion: webConfig.appVersion } : {}),
   };
+  try {
+    // What an earlier page left behind goes now, not at the first `track`.
+    if (readQueue().length > 0) void performFlush(false);
+  } catch {
+    // a throwing localStorage leaves nothing to send
+  }
 }
 
 /** `navigator.language`, when there is a `navigator` with one — never
@@ -197,8 +220,24 @@ function writeQueue(queue: QueuedEvent[]): void {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 }
 
+function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 function byteLength(queue: QueuedEvent[]): number {
-  return new TextEncoder().encode(JSON.stringify(queue)).length;
+  return utf8Length(JSON.stringify(queue));
+}
+
+/** A v4 UUID: `crypto.randomUUID` where there is one, and built from
+ * `crypto.getRandomValues` where there isn't — an insecure `http:` origin
+ * has only the latter. */
+function uuidV4(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** Drops the oldest events once the queue is past either limit — mirrors
@@ -219,7 +258,7 @@ function trimQueue(queue: QueuedEvent[]): QueuedEvent[] {
 function installId(): string {
   const existing = localStorage.getItem(ID_KEY);
   if (existing !== null) return existing;
-  const id = crypto.randomUUID();
+  const id = uuidV4();
   localStorage.setItem(ID_KEY, id);
   return id;
 }
@@ -234,9 +273,9 @@ function writeOptOut(out: boolean): void {
 
 /** Merges `callerProperties` onto the base properties the same way the
  * Rust side's `merged_properties` does: base first, then the caller's own
- * (which may shadow most of them), then `distinct_id` and
- * `$process_person_profile` re-asserted last so neither can be
- * overridden. */
+ * (which may shadow most of them) less any that would build a person, then
+ * `distinct_id` and `$process_person_profile` re-asserted last so neither
+ * can be overridden. */
 function mergedProperties(distinctId: string, callerProperties: Record<string, unknown>): Record<string, unknown> {
   const merged: Record<string, unknown> = {
     distinct_id: distinctId,
@@ -250,7 +289,7 @@ function mergedProperties(distinctId: string, callerProperties: Record<string, u
     merged.$app_version = config.appVersion;
   }
   for (const [key, value] of Object.entries(callerProperties)) {
-    merged[key] = value;
+    if (!IDENTITY_PROPERTIES.has(key)) merged[key] = value;
   }
   merged.distinct_id = distinctId;
   merged.$process_person_profile = false;
@@ -333,26 +372,30 @@ function ensureTimer(): void {
 
 /**
  * Queues `event` with `properties`, unless there is no config yet (no
- * `init` was called), the install has opted out, or the event's name,
- * trimmed, is empty or over 200 characters — mirrors the Rust side's
- * `Event::new`. Triggers a flush, without waiting for it, once 20 events
- * are waiting. Never rejects: a throwing `localStorage` or `crypto` leaves
- * this a no-op.
+ * `init` was called), the install has opted out, the event's name,
+ * trimmed, is empty, over 200 characters or one of `PostHog`'s identity
+ * events — mirrors the Rust side's `Event::new` — or the event alone is
+ * larger than the whole queue may be. Triggers a flush, without waiting
+ * for it, once 20 events are waiting. Never rejects: a throwing
+ * `localStorage` or `crypto` leaves this a no-op.
  */
 export async function track(event: string, properties?: Record<string, unknown>): Promise<void> {
   try {
     if (config === undefined) return;
     if (readOptOut()) return;
     const name = event.trim();
-    if (name === "" || [...name].length > MAX_EVENT_NAME_LEN) return;
+    if (name === "" || [...name].length > MAX_EVENT_NAME_LEN || IDENTITY_EVENTS.has(name)) return;
 
     const id = installId();
     const queued: QueuedEvent = {
-      uuid: crypto.randomUUID(),
+      uuid: uuidV4(),
       event: name,
       timestamp: new Date().toISOString(),
       properties: mergedProperties(id, addLocale(properties)),
     };
+    // Too big for the queue on its own (the 2 is the array's brackets):
+    // trimming would drop every other event and then this one too.
+    if (utf8Length(JSON.stringify(queued)) > MAX_QUEUE_BYTES - 2) return;
 
     const queue = trimQueue([...readQueue(), queued]);
     writeQueue(queue);
@@ -369,52 +412,73 @@ export async function track(event: string, properties?: Record<string, unknown>)
   }
 }
 
+/** The longest run from the front of `waiting`, at most `MAX_BATCH`, whose
+ * request body stays within `maxBytes` — measured once per event rather
+ * than by re-encoding the whole body, since `JSON.stringify` joins an
+ * array's items with bare commas. */
+function batchWithin(apiKey: string, waiting: QueuedEvent[], maxBytes: number): QueuedEvent[] {
+  let size = utf8Length(JSON.stringify({ api_key: apiKey, batch: [] }));
+  let count = 0;
+  for (const event of waiting.slice(0, MAX_BATCH)) {
+    size += utf8Length(JSON.stringify(event)) + (count > 0 ? 1 : 0);
+    if (size > maxBytes) break;
+    count += 1;
+  }
+  return waiting.slice(0, count);
+}
+
 /** The actual work of one flush attempt: only ever run one at a time, in
- * turn, via {@link performFlush}'s chain — never called directly. Honours
- * the backoff (no request at all while one is owed), sends at most
- * `MAX_BATCH` events to `{host}/batch/`, and on a 2xx response removes
- * exactly the events that were sent — by `uuid`, from a *fresh* read of
- * the queue, so events queued while this request was in flight (by a
- * `track` that ran between this attempt starting and its response
- * arriving) are never discarded. A failed or throwing `fetch`, or a
- * non-2xx response, leaves the queue untouched and starts (or extends)
- * the backoff; any success resets it. */
+ * turn, via {@link performFlush}'s chain — never called directly. Sends
+ * batches of at most `MAX_BATCH` events to `{host}/batch/` while each one
+ * succeeds and events remain, as the Rust side does; stops for the
+ * backoff (no request at all while one is owed) and for an opt-out. After
+ * each 2xx it removes exactly the events that were sent — by `uuid`, from
+ * a *fresh* read of the queue, so events queued while the request was in
+ * flight are never discarded. A failed or throwing `fetch`, or a non-2xx
+ * response, leaves the queue untouched and starts (or extends) the
+ * backoff; any success resets it. A `keepalive` attempt, made as the page
+ * goes away, sends one batch only, cut to what a browser will carry. */
 async function runFlush(keepalive: boolean): Promise<void> {
   try {
-    if (config === undefined) return;
-    if (backoffReadyInMs() > 0) return; // still waiting out a previous failure
-    const waiting = readQueue();
-    if (waiting.length === 0) return;
-    const batch = waiting.slice(0, MAX_BATCH);
+    for (;;) {
+      if (config === undefined) return;
+      if (readOptOut()) return;
+      if (backoffReadyInMs() > 0) return; // still waiting out a previous failure
+      const waiting = readQueue();
+      const batch = keepalive
+        ? batchWithin(config.apiKey, waiting, MAX_KEEPALIVE_BYTES)
+        : waiting.slice(0, MAX_BATCH);
+      if (batch.length === 0) return;
 
-    const url = `${config.host.replace(/\/+$/, "")}/batch/`;
-    const body = JSON.stringify({ api_key: config.apiKey, batch });
+      const url = `${config.host.replace(/\/+$/, "")}/batch/`;
+      const body = JSON.stringify({ api_key: config.apiKey, batch });
 
-    let response: Response;
-    try {
-      response = await fetchWithTimeout(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        keepalive,
-      });
-    } catch {
-      // a throw here is a transport failure, a non-2xx `ureq`-style
-      // rejection never happens on the web (fetch resolves on any status),
-      // or — the case this exists for — a request that timed out
-      backoffFailed();
-      return;
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive,
+        });
+      } catch {
+        // a transport failure or, the case the timeout exists for, a
+        // request that never answered — `fetch` itself resolves on any
+        // status
+        backoffFailed();
+        return;
+      }
+
+      if (!response.ok) {
+        backoffFailed();
+        return;
+      }
+
+      backoffSucceeded();
+      const sentIds = new Set(batch.map((event) => event.uuid));
+      writeQueue(readQueue().filter((event) => !sentIds.has(event.uuid)));
+      if (keepalive) return;
     }
-
-    if (!response.ok) {
-      backoffFailed();
-      return;
-    }
-
-    backoffSucceeded();
-    const sentIds = new Set(batch.map((event) => event.uuid));
-    const stillWaiting = readQueue();
-    writeQueue(stillWaiting.filter((event) => !sentIds.has(event.uuid)));
   } catch {
     // a throwing localStorage (or anything else unexpected) leaves the
     // queue untouched, same as a failed network
