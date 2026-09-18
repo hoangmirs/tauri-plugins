@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-update-gate"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "update", "version", "force-update"]
+categories = ["gui", "web-programming::http-client"]
 links = "tauri-plugin-update-gate"
 
 [dependencies]
@@ -15,7 +19,6 @@ semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
-thiserror.workspace = true
 ureq.workspace = true
 
 [build-dependencies]
