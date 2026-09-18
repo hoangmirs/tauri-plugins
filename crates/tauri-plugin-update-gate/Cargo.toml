@@ -11,12 +11,12 @@ links = "tauri-plugin-update-gate"
 [dependencies]
 async-trait.workspace = true
 log.workspace = true
-reqwest.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 thiserror.workspace = true
+ureq.workspace = true
 
 [build-dependencies]
 tauri-plugin = { version = "=2.6.3", features = ["build"] }
