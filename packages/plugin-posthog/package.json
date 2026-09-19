@@ -1,0 +1,45 @@
+{
+  "name": "tauri-plugin-posthog-api",
+  "version": "0.1.0-alpha.1",
+  "description": "Framework-neutral TypeScript facade for tauri-plugin-posthog, on Tauri and on the plain web",
+  "keywords": [
+    "tauri",
+    "tauri-plugin",
+    "analytics",
+    "posthog",
+    "telemetry"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoangmirs/tauri-plugins.git",
+    "directory": "packages/plugin-posthog"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-timeout=10000 --experimental-strip-types src/*.test.ts"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@types/node": "26.6.1",
+    "typescript": "7.0.2"
+  },
+  "license": "MIT"
+}

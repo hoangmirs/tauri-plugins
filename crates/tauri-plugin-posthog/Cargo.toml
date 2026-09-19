@@ -1,0 +1,34 @@
+[package]
+name = "tauri-plugin-posthog"
+description = "Tauri plugin that sends anonymous analytics events to PostHog from a queue on disk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-posthog"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "analytics", "posthog", "telemetry"]
+categories = ["gui", "web-programming::http-client"]
+links = "tauri-plugin-posthog"
+
+[dependencies]
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+ureq.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "=2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

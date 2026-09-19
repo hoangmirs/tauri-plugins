@@ -138,8 +138,8 @@ is not in the browser.
 ### 3. Both plugins
 
 - **Permissions.** `update-gate:default` allows `check`. `posthog:default`
-  allows `capture`, `flush` and `set-opt-out`. An app opts in through its
-  capability file, the way Ra chơi already does for gattify.
+  allows `capture`, `flush`, `set-opt-out` and `is-opted-out`. An app opts
+  in through its capability file, the way Ra chơi already does for gattify.
 - **No secrets, no product.** Keys, URLs and copy are passed in by the app.
 - **Versions pinned exactly**, `0.1.0-alpha.1` to start, MIT, one
   `rust-toolchain.toml`, clippy pedantic — gattify's setup, copied.
