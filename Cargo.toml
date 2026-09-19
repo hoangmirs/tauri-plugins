@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tauri-plugin-posthog", "crates/tauri-plugin-update-gate"]
+members = ["crates/tauri-plugin-posthog-anon", "crates/tauri-plugin-update-gate"]
 resolver = "2"
 
 [workspace.package]

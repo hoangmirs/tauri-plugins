@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// The plugin's own name, as `PostHog`'s `$lib` property expects it.
-const LIB_NAME: &str = "tauri-plugin-posthog";
+const LIB_NAME: &str = "tauri-plugin-posthog-anon";
 
 /// The longest event name `PostHog` will see from this plugin. Not a
 /// `PostHog`-imposed limit, just a sanity bound against accidental payloads.
@@ -229,7 +229,7 @@ mod tests {
         let p = &body["batch"][0]["properties"];
         assert_eq!(p["distinct_id"], "install-1");
         assert_eq!(p["$process_person_profile"], false);
-        assert_eq!(p["$lib"], "tauri-plugin-posthog");
+        assert_eq!(p["$lib"], "tauri-plugin-posthog-anon");
         assert_eq!(p["$app_version"], "1.2.3");
         assert_eq!(p["$os"], "iOS");
         assert_eq!(p["platform"], "ios");

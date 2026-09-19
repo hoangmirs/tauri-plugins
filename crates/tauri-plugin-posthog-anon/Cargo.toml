@@ -1,16 +1,16 @@
 [package]
-name = "tauri-plugin-posthog"
+name = "tauri-plugin-posthog-anon"
 description = "Tauri plugin that sends anonymous analytics events to PostHog from a queue on disk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-documentation = "https://docs.rs/tauri-plugin-posthog"
+documentation = "https://docs.rs/tauri-plugin-posthog-anon"
 readme = "../../README.md"
 keywords = ["tauri", "tauri-plugin", "analytics", "posthog", "telemetry"]
 categories = ["gui", "web-programming::http-client"]
-links = "tauri-plugin-posthog"
+links = "tauri-plugin-posthog-anon"
 
 [dependencies]
 log.workspace = true

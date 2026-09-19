@@ -1,4 +1,4 @@
-//! Framework-neutral facade for `tauri-plugin-posthog`: the same five
+//! Framework-neutral facade for `tauri-plugin-posthog-anon`: the same five
 //! functions whether the app is running under Tauri (which calls the
 //! plugin's Rust commands) or on the plain web (which queues in
 //! `localStorage` and sends with `fetch`, in `./web.ts`) — same event
@@ -14,7 +14,7 @@ import type { WebConfig } from "./web.ts";
  * Configures the web path: the project API key, optionally a non-US (or
  * self-hosted) host, and the app's own version — then starts sending
  * whatever an earlier page left queued. A no-op under Tauri, where Rust
- * already holds its own config from `posthog::Config` at `init`.
+ * already holds its own config from `tauri_plugin_posthog_anon::Config` at `init`.
  */
 export function init(config: WebConfig): void {
   if (isTauri()) return;
@@ -32,7 +32,7 @@ export function init(config: WebConfig): void {
 export async function track(event: string, properties?: Record<string, unknown>): Promise<void> {
   if (isTauri()) {
     try {
-      await invoke("plugin:posthog|capture", { event, properties: web.addLocale(properties) });
+      await invoke("plugin:posthog-anon|capture", { event, properties: web.addLocale(properties) });
     } catch {
       // analytics never breaks the app
     }
@@ -49,7 +49,7 @@ export async function track(event: string, properties?: Record<string, unknown>)
 export async function flush(): Promise<void> {
   if (isTauri()) {
     try {
-      await invoke("plugin:posthog|flush", {});
+      await invoke("plugin:posthog-anon|flush", {});
     } catch {
       // analytics never breaks the app
     }
@@ -65,7 +65,7 @@ export async function flush(): Promise<void> {
 export async function setOptOut(out: boolean): Promise<void> {
   if (isTauri()) {
     try {
-      await invoke("plugin:posthog|set_opt_out", { out });
+      await invoke("plugin:posthog-anon|set_opt_out", { out });
     } catch {
       // analytics never breaks the app
     }
@@ -81,7 +81,7 @@ export async function setOptOut(out: boolean): Promise<void> {
 export async function isOptedOut(): Promise<boolean> {
   if (isTauri()) {
     try {
-      return await invoke<boolean>("plugin:posthog|is_opted_out", {});
+      return await invoke<boolean>("plugin:posthog-anon|is_opted_out", {});
     } catch {
       return false;
     }

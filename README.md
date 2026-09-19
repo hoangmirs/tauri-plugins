@@ -139,13 +139,19 @@ but only when the app is built with `panic = "unwind"`, Rust's default. An
 app built with `panic = "abort"` crashes on such a panic instead of failing
 open.
 
-## `tauri-plugin-posthog`
+## `tauri-plugin-posthog-anon`
 
 Queues anonymous usage events on disk (or, on the plain web, in
 `localStorage`) and sends them to PostHog in batches. No product names, no
 secrets: the project key is public by design (PostHog's ingestion keys are
 meant to ship in client code) and is passed in by the app, same as every
 other plugin here.
+
+Not to be confused with
+[`tauri-plugin-posthog`](https://crates.io/crates/tauri-plugin-posthog), a
+separate plugin that sends each event as it happens and supports `identify`.
+This one keeps events on disk until they can be sent, refuses identity, has
+an opt-out, and runs on the plain web too.
 
 ### Anonymous only
 
@@ -165,7 +171,7 @@ before sending anything never gets one.
 
 An event's `properties` are the caller's own, merged onto what the plugin
 adds — `distinct_id`, `$process_person_profile: false`, `$lib`
-(`tauri-plugin-posthog`, or `tauri-plugin-posthog-web` on the plain web),
+(`tauri-plugin-posthog-anon`, or `tauri-plugin-posthog-anon-web` on the plain web),
 `$lib_version`, `$app_version` (under Tauri, the `PackageInfo` version of
 the app that captured the event, even if a later version sends it; on the
 web, whatever `appVersion` was passed to `init`, and left out entirely when
@@ -183,10 +189,10 @@ resend lands as the same event, and PostHog drops the duplicate by `uuid`.
 ### Setup (Rust)
 
 ```rust
-use tauri_plugin_posthog::Config;
+use tauri_plugin_posthog_anon::Config;
 
 tauri::Builder::default()
-    .plugin(tauri_plugin_posthog::init(Config::new("phc_your_project_key").eu()))
+    .plugin(tauri_plugin_posthog_anon::init(Config::new("phc_your_project_key").eu()))
 ```
 
 `Config::new(key)` defaults to PostHog's US cloud; `.eu()` switches to the
@@ -201,13 +207,13 @@ The app must also enable the plugin's default permission in its capability
 file:
 
 ```json
-{ "permissions": ["posthog:default"] }
+{ "permissions": ["posthog-anon:default"] }
 ```
 
 ### Use (TypeScript)
 
 ```ts
-import { init, track, flush, setOptOut, isOptedOut } from "tauri-plugin-posthog-api";
+import { init, track, flush, setOptOut, isOptedOut } from "tauri-plugin-posthog-anon-api";
 
 init({ apiKey: "phc_your_project_key", host: "https://eu.i.posthog.com", appVersion: "1.2.3" });
 await track("game_finished", { moves: 12 });

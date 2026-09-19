@@ -93,14 +93,14 @@ app's, in the app's language and brand.
 **On the web** the JS package returns `{ state: "ok" }` without a request. A
 browser always loads the newest code, so there is nothing to gate.
 
-### 2. `tauri-plugin-posthog`
+### 2. `tauri-plugin-posthog-anon`
 
 Sends events to PostHog's `/batch/`, from a queue that survives the app closing.
 
 **Setup:**
 
 ```rust
-.plugin(tauri_plugin_posthog::init(Config::new(POSTHOG_KEY).eu()))
+.plugin(tauri_plugin_posthog_anon::init(Config::new(POSTHOG_KEY).eu()))
 ```
 
 **Use:**
@@ -137,7 +137,7 @@ is not in the browser.
 
 ### 3. Both plugins
 
-- **Permissions.** `update-gate:default` allows `check`. `posthog:default`
+- **Permissions.** `update-gate:default` allows `check`. `posthog-anon:default`
   allows `capture`, `flush`, `set-opt-out` and `is-opted-out`. An app opts
   in through its capability file, the way Ra chơi already does for gattify.
 - **No secrets, no product.** Keys, URLs and copy are passed in by the app.

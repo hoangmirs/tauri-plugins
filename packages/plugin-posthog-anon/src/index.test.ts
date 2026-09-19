@@ -170,7 +170,7 @@ test("under Tauri, track invokes capture with the event, properties and $locale"
   Object.defineProperty(globalThis, "navigator", { value: { language: "vi-VN" }, configurable: true });
   try {
     await track("game_finished", { game: "caro" });
-    assert.equal(received?.cmd, "plugin:posthog|capture");
+    assert.equal(received?.cmd, "plugin:posthog-anon|capture");
     const args = received?.args as { event: string; properties: Record<string, unknown> };
     assert.equal(args.event, "game_finished");
     assert.equal(args.properties.game, "caro");
@@ -246,7 +246,7 @@ test("under Tauri, isOptedOut resolves false when invoke throws", async () => {
 
 test("under Tauri, isOptedOut resolves whatever the command answers", async () => {
   setupTauri(async (cmd) => {
-    assert.equal(cmd, "plugin:posthog|is_opted_out");
+    assert.equal(cmd, "plugin:posthog-anon|is_opted_out");
     return true;
   });
   try {
@@ -256,28 +256,28 @@ test("under Tauri, isOptedOut resolves whatever the command answers", async () =
   }
 });
 
-test("under Tauri, flush invokes plugin:posthog|flush with no args", async () => {
+test("under Tauri, flush invokes plugin:posthog-anon|flush with no args", async () => {
   let received: { cmd: string; args: unknown } | undefined;
   setupTauri(async (cmd, args) => {
     received = { cmd, args };
   });
   try {
     await flush();
-    assert.equal(received?.cmd, "plugin:posthog|flush");
+    assert.equal(received?.cmd, "plugin:posthog-anon|flush");
     assert.deepEqual(received?.args, {});
   } finally {
     teardownTauri();
   }
 });
 
-test("under Tauri, setOptOut invokes plugin:posthog|set_opt_out with out", async () => {
+test("under Tauri, setOptOut invokes plugin:posthog-anon|set_opt_out with out", async () => {
   let received: { cmd: string; args: unknown } | undefined;
   setupTauri(async (cmd, args) => {
     received = { cmd, args };
   });
   try {
     await setOptOut(true);
-    assert.equal(received?.cmd, "plugin:posthog|set_opt_out");
+    assert.equal(received?.cmd, "plugin:posthog-anon|set_opt_out");
     assert.deepEqual(received?.args, { out: true });
   } finally {
     teardownTauri();
@@ -332,7 +332,7 @@ test("on the web after init, track stores a fully-shaped event in localStorage",
     assert.ok(id);
     assert.equal(stored.properties.distinct_id, id);
     assert.equal(stored.properties.$process_person_profile, false);
-    assert.equal(stored.properties.$lib, "tauri-plugin-posthog-web");
+    assert.equal(stored.properties.$lib, "tauri-plugin-posthog-anon-web");
     assert.equal(stored.properties.$os, "Web");
     assert.equal(stored.properties.platform, "web");
     assert.equal(stored.properties.$app_version, "1.2.3");
