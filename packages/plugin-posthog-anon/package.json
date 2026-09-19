@@ -1,7 +1,7 @@
 {
-  "name": "tauri-plugin-posthog-api",
+  "name": "tauri-plugin-posthog-anon-api",
   "version": "0.1.0-alpha.1",
-  "description": "Framework-neutral TypeScript facade for tauri-plugin-posthog, on Tauri and on the plain web",
+  "description": "Framework-neutral TypeScript facade for tauri-plugin-posthog-anon, on Tauri and on the plain web",
   "keywords": [
     "tauri",
     "tauri-plugin",
@@ -12,7 +12,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hoangmirs/tauri-plugins.git",
-    "directory": "packages/plugin-posthog"
+    "directory": "packages/plugin-posthog-anon"
   },
   "type": "module",
   "sideEffects": false,

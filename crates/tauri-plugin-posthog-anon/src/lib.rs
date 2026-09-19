@@ -1,4 +1,4 @@
-//! `tauri-plugin-posthog`: sends anonymous analytics events to `PostHog`
+//! `tauri-plugin-posthog-anon`: sends anonymous analytics events to `PostHog`
 //! from a queue on disk.
 
 mod event;
@@ -96,7 +96,7 @@ fn data_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
 /// and asks it for a last flush when the app exits.
 #[must_use]
 pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
-    Builder::new("posthog")
+    Builder::new("posthog-anon")
         .invoke_handler(tauri::generate_handler![
             capture,
             flush,

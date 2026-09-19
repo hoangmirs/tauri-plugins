@@ -9,7 +9,7 @@ use tauri::utils::acl::resolved::{Resolved, ResolvedCommand};
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
 use tauri::{WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_posthog::{init, Config};
+use tauri_plugin_posthog_anon::{init, Config};
 
 const COMMANDS: [&str; 4] = ["capture", "flush", "set_opt_out", "is_opted_out"];
 
@@ -24,12 +24,12 @@ fn the_readme_setup_compiles_against_the_public_api() {
 }
 
 /// A mock app has no capability files, so grant every command to every
-/// local window the way `posthog:default` does in a real app.
+/// local window the way `posthog-anon:default` does in a real app.
 fn allow_all() -> Resolved {
     let mut resolved = Resolved::default();
     for command in COMMANDS {
         resolved.allowed_commands.insert(
-            format!("plugin:posthog|{command}"),
+            format!("plugin:posthog-anon|{command}"),
             vec![ResolvedCommand {
                 context: ExecutionContext::Local,
                 windows: vec!["*".parse().unwrap()],
@@ -48,7 +48,7 @@ fn invoke(
     get_ipc_response(
         webview,
         InvokeRequest {
-            cmd: format!("plugin:posthog|{command}"),
+            cmd: format!("plugin:posthog-anon|{command}"),
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: if cfg!(any(windows, target_os = "android")) {

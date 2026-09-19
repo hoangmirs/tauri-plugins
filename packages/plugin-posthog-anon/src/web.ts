@@ -38,8 +38,8 @@ type QueuedEvent = {
 };
 
 /** `PostHog`'s own name for this half of the plugin, as the Rust side spells
- * the native one (`tauri-plugin-posthog`) with `-web` appended. */
-const LIB_NAME = "tauri-plugin-posthog-web";
+ * the native one (`tauri-plugin-posthog-anon`) with `-web` appended. */
+const LIB_NAME = "tauri-plugin-posthog-anon-web";
 
 /** Kept in sync with `package.json`'s `version` — a JSON import would need
  * `resolveJsonModule` plumbing that fights the `node --experimental-strip-types`

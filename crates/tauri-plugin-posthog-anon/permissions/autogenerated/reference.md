@@ -21,7 +21,7 @@ Queue analytics events, flush them, and manage opt-out
 <tr>
 <td>
 
-`posthog:allow-capture`
+`posthog-anon:allow-capture`
 
 </td>
 <td>
@@ -34,7 +34,7 @@ Enables the capture command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:deny-capture`
+`posthog-anon:deny-capture`
 
 </td>
 <td>
@@ -47,7 +47,7 @@ Denies the capture command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:allow-flush`
+`posthog-anon:allow-flush`
 
 </td>
 <td>
@@ -60,7 +60,7 @@ Enables the flush command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:deny-flush`
+`posthog-anon:deny-flush`
 
 </td>
 <td>
@@ -73,7 +73,7 @@ Denies the flush command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:allow-is-opted-out`
+`posthog-anon:allow-is-opted-out`
 
 </td>
 <td>
@@ -86,7 +86,7 @@ Enables the is_opted_out command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:deny-is-opted-out`
+`posthog-anon:deny-is-opted-out`
 
 </td>
 <td>
@@ -99,7 +99,7 @@ Denies the is_opted_out command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:allow-set-opt-out`
+`posthog-anon:allow-set-opt-out`
 
 </td>
 <td>
@@ -112,7 +112,7 @@ Enables the set_opt_out command without any pre-configured scope.
 <tr>
 <td>
 
-`posthog:deny-set-opt-out`
+`posthog-anon:deny-set-opt-out`
 
 </td>
 <td>
