@@ -34,7 +34,7 @@
     "test": "node --test --test-timeout=10000 --experimental-strip-types src/*.test.ts"
   },
   "peerDependencies": {
-    "@tauri-apps/api": "2.11.1"
+    "@tauri-apps/api": "^2.11.1"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.11.1",
