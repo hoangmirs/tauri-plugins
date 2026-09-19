@@ -147,6 +147,12 @@ secrets: the project key is public by design (PostHog's ingestion keys are
 meant to ship in client code) and is passed in by the app, same as every
 other plugin here.
 
+Not to be confused with
+[`tauri-plugin-posthog`](https://crates.io/crates/tauri-plugin-posthog), a
+separate plugin that sends each event as it happens and supports `identify`.
+This one keeps events on disk until they can be sent, refuses identity, has
+an opt-out, and runs on the plain web too.
+
 ### Anonymous only
 
 Every event carries `"$process_person_profile": false`, which a caller's
