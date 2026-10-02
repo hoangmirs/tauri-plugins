@@ -300,6 +300,51 @@ dropped send, the same as any other failure — but only when the app is
 built with `panic = "unwind"`, Rust's default. An app built with
 `panic = "abort"` crashes on such a panic instead of failing quietly.
 
+## `tauri-plugin-silent-mode`
+
+Tells an app whether the phone is set to silent or vibrate, and when that
+changes, so its sounds can keep to the choice the player made for the whole
+phone. The plugin plays and mutes nothing itself: what to do while the phone
+is quiet is the app's call.
+
+### Where it reads anything
+
+- **Android** reads the ringer mode (`AudioManager.getRingerMode`) and sends
+  `change` whenever it moves. Android's silent and vibrate modes only touch
+  the ringer and notifications, so media, a game's sound included, plays on
+  through them unless the app asks.
+- **iOS** answers `normal`. The silent switch already mutes an app's sound
+  when the page or app asks for ambient audio (`navigator.audioSession.type =
+  "ambient"` in a webview), and there is no public way to read the switch.
+- **Desktop and the plain web** answer `normal`: there is no such mode.
+
+### Setup (Rust)
+
+```rust
+tauri::Builder::default().plugin(tauri_plugin_silent_mode::init())
+```
+
+The app must also enable the plugin's default permission in its capability
+file, which allows `state` and listening for `change`:
+
+```json
+{ "permissions": ["silent-mode:default"] }
+```
+
+### Use (TypeScript)
+
+```ts
+import { isQuiet, onSilentModeChange, silentMode } from "tauri-plugin-silent-mode-api";
+
+let quiet = isQuiet(await silentMode());
+const stop = await onSilentModeChange((mode) => (quiet = isQuiet(mode)));
+```
+
+`mode` is `"normal"`, `"vibrate"` or `"silent"`. Read it once and keep it:
+`change` says when it moves, so nothing needs asking before each sound.
+Neither call ever rejects; anything unreadable is `"normal"`, so an app that
+cannot tell stays audible.
+
 ## Development
 
 ```bash

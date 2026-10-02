@@ -1,0 +1,27 @@
+[package]
+name = "tauri-plugin-silent-mode"
+description = "Tauri plugin that tells an app whether the phone is set to silent or vibrate, and when that changes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-silent-mode"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "android", "silent", "ringer"]
+categories = ["gui", "multimedia::audio"]
+links = "tauri-plugin-silent-mode"
+
+[dependencies]
+serde.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
