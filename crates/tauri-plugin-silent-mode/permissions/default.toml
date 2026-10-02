@@ -1,0 +1,3 @@
+[default]
+description = "Read whether the phone is set to silent or vibrate, and hear when that changes"
+permissions = ["allow-state", "allow-register-listener", "allow-remove-listener"]
