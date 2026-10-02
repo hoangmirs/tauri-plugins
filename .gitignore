@@ -1,3 +1,8 @@
 target/
 node_modules/
 dist/
+# What an app's Android build writes into a plugin's android folder: a copy of
+# Tauri's own Kotlin library and Gradle's output. Never part of the plugin, and
+# cargo refuses to package a crate while they sit there untracked.
+**/android/.tauri/
+**/android/build/
