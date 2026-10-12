@@ -2819,6 +2819,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-store-review"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-update-gate"
 version = "0.1.0-alpha.1"
 dependencies = [
