@@ -1,0 +1,26 @@
+[package]
+name = "tauri-plugin-store-review"
+description = "Tauri plugin that asks the phone to show its own App Store or Google Play rating prompt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-store-review"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "ios", "android", "review"]
+categories = ["gui"]
+links = "tauri-plugin-store-review"
+
+[dependencies]
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
