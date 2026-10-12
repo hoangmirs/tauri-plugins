@@ -345,6 +345,38 @@ const stop = await onSilentModeChange((mode) => (quiet = isQuiet(mode)));
 Neither call ever rejects; anything unreadable is `"normal"`, so an app that
 cannot tell stays audible.
 
+## `tauri-plugin-store-review`
+
+Asks the phone to show its own rating prompt: the App Store's on iOS 16.4 and
+later, Google Play's on Android. On a desktop the command does nothing.
+
+The phone decides whether the prompt shows. iOS shows it 3 times in 365 days
+at most. Play has a limit it does not publish. Neither store tells the app
+whether the prompt showed or what the player chose, so `request_review`
+returns nothing. Ask after a moment the player enjoyed, and not from a
+button: when the limit is used, the tap does nothing.
+
+The prompt shows in an iOS development build every time, and sends nothing.
+It never shows in TestFlight. On Android it shows only in an app installed
+from Google Play, such as a test track.
+
+### Setup (Rust)
+
+```rust
+#[cfg(mobile)]
+app.handle().plugin(tauri_plugin_store_review::init())?;
+```
+
+Add `store-review:default` to a capability for the phones.
+
+### Use (TypeScript)
+
+```ts
+import { requestReview } from "tauri-plugin-store-review-api";
+
+await requestReview();
+```
+
 ## Development
 
 ```bash
