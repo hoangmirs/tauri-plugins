@@ -410,12 +410,15 @@ choice:
 
 - iOS `Info.plist`: `FIREBASE_ANALYTICS_COLLECTION_ENABLED` and
   `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS`, both `false`.
-- Android `AndroidManifest.xml`, as `meta-data`:
+- Android: the library's manifest already sets
   `firebase_analytics_collection_enabled`,
   `google_analytics_adid_collection_enabled` and
-  `google_analytics_default_allow_ad_personalization_signals`, all `false`.
+  `google_analytics_default_allow_ad_personalization_signals` to `false`. An
+  app overrides one with `tools:replace="android:value"`.
 
-Then call `setCollection(true)` when the player allows it.
+Then call `setCollection(true)` when the player allows it. Both native SDKs
+keep that choice across launches, so call `setCollection` on every launch with
+the player's current answer.
 
 ### No advertising id
 
@@ -427,7 +430,20 @@ advertising id in an app whose audience includes children.
 ### Build notes
 
 - iOS: Firebase Analytics ships as prebuilt static frameworks. `build.rs`
-  links them into the crate, because the Rust link does not see them.
+  links them into the crate, because the Rust link does not see them. It finds
+  them in the downloaded `.xcframework` slices, so debug and release builds
+  work alike.
+- iOS: no `-ObjC` flag is needed, and adding one to the app fails with
+  duplicate symbols, because every Tauri plugin carries its own copy of
+  Tauri's Swift API. Firebase's Objective-C categories need their objects
+  loaded, so `build.rs` writes a reference to one symbol in each Firebase
+  object instead.
+- iOS: a `GoogleService-Info.plist` with a malformed value, such as an API key
+  of the wrong length, stops the app at start. Firebase throws an Objective-C
+  exception that Swift cannot catch. Use the file the Firebase console gives.
+- Firebase starts when the plugin is created, not when the webview loads, so
+  the plugin works whether the app registers it on the builder or in
+  `setup`.
 - Android: the library uses Firebase BoM 34.19.0. BoM 35 needs Kotlin 2.1 or
   later in the app, and Tauri's Android template uses Kotlin 1.9.
 - Firebase's iOS resource bundles, with their privacy manifests, do not reach

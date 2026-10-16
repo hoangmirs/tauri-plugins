@@ -20,6 +20,13 @@ pub use values::Entry;
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_firebase);
 
+/// One symbol from each Firebase object, written by `build.rs`. See `SKIP`
+/// there for why.
+#[cfg(target_os = "ios")]
+mod anchors {
+    include!(concat!(env!("OUT_DIR"), "/anchors.rs"));
+}
+
 /// How the plugin runs. Only `minimum_fetch_interval` can be set.
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -205,7 +212,10 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
                 let handle =
                     api.register_android_plugin("dev.hoangmirs.firebase", "FirebasePlugin")?;
                 #[cfg(target_os = "ios")]
-                let handle = api.register_ios_plugin(init_plugin_firebase)?;
+                let handle = {
+                    std::hint::black_box(anchors::ANCHORS.as_ptr());
+                    api.register_ios_plugin(init_plugin_firebase)?
+                };
                 let mode = handle
                     .run_mobile_plugin::<Value>(
                         "configure",

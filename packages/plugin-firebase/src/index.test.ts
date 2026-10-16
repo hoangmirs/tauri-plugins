@@ -201,3 +201,12 @@ test("no function ever rejects", async () => {
   await setCollection(true);
   await setCollection(false);
 });
+
+test("on the Mac, defaults set before init still answer after it", async () => {
+  setupTauri((cmd) => (cmd === "plugin:firebase|mode" ? "desktop" : null));
+  await setDefaults({ a: true });
+  await init(WEB, async () => {
+    throw new Error("no sdk");
+  });
+  assert.deepEqual(await getAll(), { a: { value: "true", source: "default" } });
+});

@@ -55,7 +55,10 @@ export async function init(config?: WebConfig, loader?: Loader): Promise<void> {
 
 export async function setDefaults(next: Defaults): Promise<void> {
   defaults = next;
-  if ((await routeOf()) === "web") return web.setDefaults(next);
+  // The web module keeps them even on the command route: a desktop moves to
+  // the web route at `init`, and must not lose defaults set before it.
+  await web.setDefaults(next);
+  if ((await routeOf()) === "web") return;
   await command("set_defaults", { defaults: next }, undefined);
 }
 

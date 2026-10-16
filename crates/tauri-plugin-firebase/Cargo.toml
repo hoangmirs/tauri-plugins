@@ -21,6 +21,7 @@ tauri.workspace = true
 tauri-plugin = { version = "2.6.3", features = ["build"] }
 
 [dev-dependencies]
+tempfile.workspace = true
 tauri = { workspace = true, features = ["test"] }
 
 [lints]

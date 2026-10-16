@@ -2,7 +2,6 @@ import FirebaseAnalytics
 import FirebaseCore
 import FirebaseRemoteConfig
 import Tauri
-import WebKit
 
 class ConfigureArgs: Decodable {
   let minimumFetchIntervalSeconds: Double
@@ -15,7 +14,11 @@ class CollectionArgs: Decodable {
 class FirebasePlugin: Plugin {
   private var configured = false
 
-  @objc public override func load(webview: WKWebView) {
+  /// Runs when the plugin is created, before Rust asks `configure`. Tauri
+  /// calls `load(webview:)` only once a webview exists, which is after
+  /// `configure` for a plugin registered on the app's builder. A check there
+  /// would read "absent" for the whole session.
+  func start() {
     // `FirebaseApp.configure()` stops the app when the plist is missing, and an
     // app without its Firebase file must still start on its defaults.
     guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return }
@@ -112,5 +115,7 @@ class FirebasePlugin: Plugin {
 
 @_cdecl("init_plugin_firebase")
 func initPlugin() -> Plugin {
-  return FirebasePlugin()
+  let plugin = FirebasePlugin()
+  plugin.start()
+  return plugin
 }

@@ -2,7 +2,6 @@ package dev.hoangmirs.firebase
 
 import android.app.Activity
 import android.os.Bundle
-import android.webkit.WebView
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -28,13 +27,11 @@ class CollectionArgs {
 @TauriPlugin
 class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
   // An app without google-services.json has no default FirebaseApp, and every
-  // Firebase call would throw. It must still start on its defaults.
-  private var configured = false
-
-  override fun load(webView: WebView) {
-    configured = FirebaseApp.getApps(activity).isNotEmpty() ||
-      FirebaseApp.initializeApp(activity) != null
-  }
+  // Firebase call would throw. It must still start on its defaults. Decided
+  // here, not in `load`: Tauri calls `load` only once a webview exists, which
+  // is after Rust asks `configure` for a plugin registered on the builder.
+  private val configured = FirebaseApp.getApps(activity).isNotEmpty() ||
+    FirebaseApp.initializeApp(activity) != null
 
   private fun config() = FirebaseRemoteConfig.getInstance()
 
