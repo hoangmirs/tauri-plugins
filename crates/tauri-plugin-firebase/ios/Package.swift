@@ -23,7 +23,7 @@ let package = Package(
       dependencies: [
         .byName(name: "Tauri"),
         .product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk"),
-        .product(name: "FirebaseAnalytics", package: "firebase-ios-sdk"),
+        .product(name: "FirebaseAnalyticsCore", package: "firebase-ios-sdk"),
       ],
       path: "Sources")
   ]
