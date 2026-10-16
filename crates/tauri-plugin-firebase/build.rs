@@ -1,4 +1,12 @@
-const COMMANDS: &[&str] = &["mode"];
+const COMMANDS: &[&str] = &[
+    "mode",
+    "set_defaults",
+    "fetch",
+    "activate",
+    "get_all",
+    "log_event",
+    "set_collection",
+];
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS)

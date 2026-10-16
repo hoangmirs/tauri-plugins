@@ -295,6 +295,54 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the activate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-activate",
+          "markdownDescription": "Enables the activate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the activate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-activate",
+          "markdownDescription": "Denies the activate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the fetch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-fetch",
+          "markdownDescription": "Enables the fetch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the fetch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-fetch",
+          "markdownDescription": "Denies the fetch command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-all",
+          "markdownDescription": "Enables the get_all command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-all",
+          "markdownDescription": "Denies the get_all command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the log_event command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-log-event",
+          "markdownDescription": "Enables the log_event command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the log_event command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-log-event",
+          "markdownDescription": "Denies the log_event command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mode command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mode",
@@ -307,10 +355,34 @@
           "markdownDescription": "Denies the mode command without any pre-configured scope."
         },
         {
-          "description": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`",
+          "description": "Enables the set_collection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-collection",
+          "markdownDescription": "Enables the set_collection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_collection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-collection",
+          "markdownDescription": "Denies the set_collection command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_defaults command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-defaults",
+          "markdownDescription": "Enables the set_defaults command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_defaults command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-defaults",
+          "markdownDescription": "Denies the set_defaults command without any pre-configured scope."
+        },
+        {
+          "description": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`"
+          "markdownDescription": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`"
         }
       ]
     }

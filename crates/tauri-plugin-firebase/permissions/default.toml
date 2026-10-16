@@ -1,3 +1,11 @@
 [default]
 description = "Read Remote Config and log Analytics events"
-permissions = ["allow-mode"]
+permissions = [
+  "allow-mode",
+  "allow-set-defaults",
+  "allow-fetch",
+  "allow-activate",
+  "allow-get-all",
+  "allow-log-event",
+  "allow-set-collection",
+]
