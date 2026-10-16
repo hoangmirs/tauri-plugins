@@ -377,6 +377,95 @@ import { requestReview } from "tauri-plugin-store-review-api";
 await requestReview();
 ```
 
+## `tauri-plugin-firebase`
+
+Reads Firebase Remote Config and logs Firebase Analytics events, so an app can
+change values, turn features on and off, and run A/B tests without a release.
+iOS and Android use Firebase's native SDKs. The web and a Tauri desktop app use
+the Firebase web SDK through the TypeScript package.
+
+### Defaults first
+
+The app passes a default for each key. The Rust side keeps them, so a phone
+without its Firebase file, a desktop, and a failed fetch all answer with the
+defaults. No command returns an error: a failure reads as `"failed"`, `false`
+or the defaults.
+
+Firebase gives every value as text. A default `true` reads `"true"`, `15`
+reads `"15"`, and an object reads as its JSON text. The app parses each key
+by its own type.
+
+### Fetch, then activate
+
+`fetch` gets new values and keeps them aside. The values change only when the
+app calls `activate`. The app picks the moment a change shows, for example
+never in the middle of a game. A `fetch` inside the minimum interval (15
+minutes unless the app sets another) answers from Firebase's cache.
+
+### Analytics starts off
+
+The plugin never turns Analytics on by itself. Turn collection off in each
+app's native config, so nothing is sent before the app reads the player's
+choice:
+
+- iOS `Info.plist`: `FIREBASE_ANALYTICS_COLLECTION_ENABLED` and
+  `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS`, both `false`.
+- Android `AndroidManifest.xml`, as `meta-data`:
+  `firebase_analytics_collection_enabled`,
+  `google_analytics_adid_collection_enabled` and
+  `google_analytics_default_allow_ad_personalization_signals`, all `false`.
+
+Then call `setCollection(true)` when the player allows it.
+
+### No advertising id
+
+iOS links `FirebaseAnalyticsCore`, which has no advertising id support. The
+Android library removes `AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION` and
+`ACCESS_ADSERVICES_AD_ID` from the merged manifest. Google Play forbids the
+advertising id in an app whose audience includes children.
+
+### Build notes
+
+- iOS: Firebase Analytics ships as prebuilt static frameworks. `build.rs`
+  links them into the crate, because the Rust link does not see them.
+- Android: the library uses Firebase BoM 34.19.0. BoM 35 needs Kotlin 2.1 or
+  later in the app, and Tauri's Android template uses Kotlin 1.9.
+- Firebase's iOS resource bundles, with their privacy manifests, do not reach
+  the app. Declare what they declare in the app's own `PrivacyInfo.xcprivacy`.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_firebase::init(Default::default()))?;
+```
+
+Add `firebase:default` to a capability for every window that reads values,
+desktop included. Put `GoogleService-Info.plist` in the iOS app's resources
+and `google-services.json` in the Android app, with Google's Gradle plugin.
+
+### Use (TypeScript)
+
+```ts
+import { activate, fetch, getAll, init, logEvent, setCollection, setDefaults } from "tauri-plugin-firebase-api";
+
+// The web and the desktop only. A phone reads its own Firebase file.
+await init({ options: firebaseWebConfig, minimumFetchIntervalMillis: 15 * 60_000 });
+await setDefaults({ newShop: false, maxSeats: 6 });
+const values = await getAll(); // { newShop: { value: "false", source: "default" }, ... }
+
+if ((await fetch()) === "fetched") {
+  // later, at a moment the app picks
+  await activate();
+}
+
+await setCollection(playerAllowsCounts);
+await logEvent("round_ended", { game: "chess", seats: 2 });
+```
+
+On the web the package loads `firebase` (12.8.0 or later) with a dynamic
+`import()`. Add it to the app's dependencies only if the app runs on the web
+or a desktop.
+
 ## Development
 
 ```bash
