@@ -1,0 +1,26 @@
+[package]
+name = "tauri-plugin-firebase"
+description = "Tauri plugin that reads Firebase Remote Config and logs Firebase Analytics events, with defaults wherever Firebase is absent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-firebase"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "firebase", "remote-config", "analytics"]
+categories = ["gui"]
+links = "tauri-plugin-firebase"
+
+[dependencies]
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
