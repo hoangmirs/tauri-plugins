@@ -26,7 +26,7 @@ export type Sdk = {
   activate(rc: RemoteConfig): Promise<boolean>;
   getAll(rc: RemoteConfig): Record<string, { asString(): string; getSource(): Source }>;
   isSupported(): Promise<boolean>;
-  getAnalytics(app: unknown): unknown;
+  initializeAnalytics(app: unknown, options: { config: { send_page_view: boolean } }): unknown;
   logEvent(analytics: unknown, name: string, params?: Params): void;
   setAnalyticsCollectionEnabled(analytics: unknown, enabled: boolean): void;
 };
@@ -133,7 +133,9 @@ export async function setCollection(enabled: boolean): Promise<void> {
   if (!sdk || !app) return;
   try {
     if (enabled && state.analytics === undefined && (await sdk.isSupported())) {
-      state.analytics = sdk.getAnalytics(app);
+      // No automatic page view: it carries the page's address and the full
+      // referring address, which an app's own counts may promise to keep out.
+      state.analytics = sdk.initializeAnalytics(app, { config: { send_page_view: false } });
     }
     if (state.analytics !== undefined) sdk.setAnalyticsCollectionEnabled(state.analytics, enabled);
   } catch {

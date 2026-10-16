@@ -416,7 +416,10 @@ choice:
   `google_analytics_default_allow_ad_personalization_signals` to `false`. An
   app overrides one with `tools:replace="android:value"`.
 
-Then call `setCollection(true)` when the player allows it. Both native SDKs
+Then call `setCollection(true)` when the player allows it. On the web,
+Analytics starts with automatic page views off, because a page view carries
+the page's address and the full referring address. Turn off enhanced
+measurement in the web stream's settings too. Both native SDKs
 keep that choice across launches, so call `setCollection` on every launch with
 the player's current answer.
 

@@ -61,8 +61,8 @@ function fakeSdk(over: Partial<Sdk> = {}) {
         Object.entries(defaults).map(([k, v]) => [k, { asString: () => String(v), getSource: () => "default" as const }]),
       ),
     isSupported: async () => true,
-    getAnalytics: () => {
-      log.push("getAnalytics");
+    initializeAnalytics: (_app, options) => {
+      log.push(`initializeAnalytics ${JSON.stringify(options)}`);
       return {};
     },
     logEvent: (_a, name, params) => {
@@ -180,10 +180,10 @@ test("logEvent before setCollection(true) does not start Analytics on the web", 
   const { sdk, log } = fakeSdk();
   await init(WEB, async () => sdk);
   await logEvent("early", { a: 1 });
-  assert.ok(!log.includes("getAnalytics"));
+  assert.ok(!log.some((l) => l.startsWith("initializeAnalytics")));
   await setCollection(true);
   await logEvent("later", { a: 1 });
-  assert.ok(log.includes("getAnalytics"));
+  assert.ok(log.includes('initializeAnalytics {"config":{"send_page_view":false}}'));
   assert.ok(log.includes('logEvent later {"a":1}'));
   assert.ok(!log.some((l) => l.startsWith("logEvent early")));
 });
