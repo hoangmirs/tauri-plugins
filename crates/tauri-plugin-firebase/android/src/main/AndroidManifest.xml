@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
+  <!-- firebase-analytics adds these for ads measurement. Play forbids the
+       advertising id in an app whose audience includes children, and an
+       app that never shows ads gains nothing from them. -->
+  <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+  <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
+  <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
+
+  <!-- Analytics sends nothing until the app calls setCollection(true), and
+       never collects the advertising id. An app overrides one of these with
+       tools:replace="android:value". -->
+  <application>
+    <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+    <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+    <meta-data android:name="google_analytics_default_allow_ad_personalization_signals" android:value="false" />
+  </application>
+</manifest>

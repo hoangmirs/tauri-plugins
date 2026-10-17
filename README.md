@@ -377,6 +377,114 @@ import { requestReview } from "tauri-plugin-store-review-api";
 await requestReview();
 ```
 
+## `tauri-plugin-firebase`
+
+Reads Firebase Remote Config and logs Firebase Analytics events, so an app can
+change values, turn features on and off, and run A/B tests without a release.
+iOS and Android use Firebase's native SDKs. The web and a Tauri desktop app use
+the Firebase web SDK through the TypeScript package.
+
+### Defaults first
+
+The app passes a default for each key. The Rust side keeps them, so a phone
+without its Firebase file, a desktop, and a failed fetch all answer with the
+defaults. No command returns an error: a failure reads as `"failed"`, `false`
+or the defaults.
+
+Firebase gives every value as text. A default `true` reads `"true"`, `15`
+reads `"15"`, and an object reads as its JSON text. The app parses each key
+by its own type.
+
+### Fetch, then activate
+
+`fetch` gets new values and keeps them aside. The values change only when the
+app calls `activate`. The app picks the moment a change shows, for example
+never in the middle of a game. A `fetch` inside the minimum interval (15
+minutes unless the app sets another) answers from Firebase's cache.
+
+### Analytics starts off
+
+The plugin never turns Analytics on by itself. Turn collection off in each
+app's native config, so nothing is sent before the app reads the player's
+choice:
+
+- iOS `Info.plist`: `FIREBASE_ANALYTICS_COLLECTION_ENABLED` and
+  `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS`, both `false`.
+- Android: the library's manifest already sets
+  `firebase_analytics_collection_enabled`,
+  `google_analytics_adid_collection_enabled` and
+  `google_analytics_default_allow_ad_personalization_signals` to `false`. An
+  app overrides one with `tools:replace="android:value"`.
+
+Then call `setCollection(true)` when the player allows it. On the web,
+Analytics starts with automatic page views off, because a page view carries
+the page's address and the full referring address. Turn off enhanced
+measurement in the web stream's settings too. Both native SDKs
+keep that choice across launches, so call `setCollection` on every launch with
+the player's current answer.
+
+### No advertising id
+
+iOS links `FirebaseAnalyticsCore`, which has no advertising id support. The
+Android library removes `AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION` and
+`ACCESS_ADSERVICES_AD_ID` from the merged manifest. Google Play forbids the
+advertising id in an app whose audience includes children.
+
+### Build notes
+
+- iOS: Firebase Analytics ships as prebuilt static frameworks. `build.rs`
+  links them into the crate, because the Rust link does not see them. It finds
+  them in the downloaded `.xcframework` slices, so debug and release builds
+  work alike.
+- iOS: no `-ObjC` flag is needed, and adding one to the app fails with
+  duplicate symbols, because every Tauri plugin carries its own copy of
+  Tauri's Swift API. Firebase's Objective-C categories need their objects
+  loaded, so `build.rs` writes a reference to one symbol in each Firebase
+  object instead.
+- iOS: a `GoogleService-Info.plist` with a malformed value, such as an API key
+  of the wrong length, stops the app at start. Firebase throws an Objective-C
+  exception that Swift cannot catch. Use the file the Firebase console gives.
+- Firebase starts when the plugin is created, not when the webview loads, so
+  the plugin works whether the app registers it on the builder or in
+  `setup`.
+- Android: the library uses Firebase BoM 34.19.0. BoM 35 needs Kotlin 2.1 or
+  later in the app, and Tauri's Android template uses Kotlin 1.9.
+- Firebase's iOS resource bundles, with their privacy manifests, do not reach
+  the app. Declare what they declare in the app's own `PrivacyInfo.xcprivacy`.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_firebase::init(Default::default()))?;
+```
+
+Add `firebase:default` to a capability for every window that reads values,
+desktop included. Put `GoogleService-Info.plist` in the iOS app's resources
+and `google-services.json` in the Android app, with Google's Gradle plugin.
+
+### Use (TypeScript)
+
+```ts
+import { activate, fetch, getAll, init, logEvent, setCollection, setDefaults } from "tauri-plugin-firebase-api";
+
+// The web and the desktop only. A phone reads its own Firebase file.
+await init({ options: firebaseWebConfig, minimumFetchIntervalMillis: 15 * 60_000 });
+await setDefaults({ newShop: false, maxSeats: 6 });
+const values = await getAll(); // { newShop: { value: "false", source: "default" }, ... }
+
+if ((await fetch()) === "fetched") {
+  // later, at a moment the app picks
+  await activate();
+}
+
+await setCollection(playerAllowsCounts);
+await logEvent("round_ended", { game: "chess", seats: 2 });
+```
+
+On the web the package loads `firebase` (12.8.0 or later) with a dynamic
+`import()`. Add it to the app's dependencies only if the app runs on the web
+or a desktop.
+
 ## Development
 
 ```bash
