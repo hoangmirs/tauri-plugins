@@ -36,6 +36,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   // Play answers a purchase sheet through the client's one listener, not
   // through the call that opened it, so the open sheet's invoke waits here.
   private var buying: Invoke? = null
+  private var buyingId = ""
 
   private val client: BillingClient = BillingClient.newBuilder(activity)
     .setListener { result, purchases -> onPurchases(result, purchases) }
@@ -104,7 +105,12 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun buy(invoke: Invoke) {
     val args = invoke.parseArgs(BuyArgs::class.java)
-    if (buying != null) return invoke.reject("A purchase sheet is already open")
+    // Play's sheet covers the app while it is open, so a second buy means Play
+    // never answered the first. Refusing it would block buying until a restart.
+    buying?.let {
+      buying = null
+      it.resolve(state("failed"))
+    }
     ready { ok ->
       if (ok.responseCode != BillingResponseCode.OK) return@ready invoke.resolve(state("failed"))
       details(listOf(args.id)) { result, found ->
@@ -119,6 +125,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
         val flow = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(params.build())).build()
         activity.runOnUiThread {
           buying = invoke
+          buyingId = args.id
           val launched = client.launchBillingFlow(activity, flow)
           if (launched.responseCode != BillingResponseCode.OK) {
             buying = null
@@ -134,6 +141,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
     // that has now gone through. Each one is acknowledged all the same.
     purchases?.forEach { acknowledge(it) }
     val invoke = buying ?: return
+    val id = buyingId
     buying = null
     when (result.responseCode) {
       BillingResponseCode.OK -> {
@@ -148,8 +156,8 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
       }
       BillingResponseCode.USER_CANCELED -> invoke.resolve(state("cancelled"))
       // Bought before, on this account: answer with that purchase's token.
-      BillingResponseCode.ITEM_ALREADY_OWNED -> held { list ->
-        val p = list.firstOrNull()
+      BillingResponseCode.ITEM_ALREADY_OWNED -> held({ invoke.resolve(state("failed")) }) { list ->
+        val p = list.firstOrNull { id in it.products }
         invoke.resolve(if (p != null) state("bought", p.purchaseToken) else state("failed"))
       }
       else -> invoke.resolve(state("failed"))
@@ -164,11 +172,14 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   // queryPurchasesAsync leaves out refunded purchases, and answers from Play's
-  // copy on the phone when it is offline.
-  private fun held(then: (List<Purchase>) -> Unit) {
+  // copy on the phone when it is offline. An error goes to fail, never to then
+  // as an empty list: an app reads empty as "owns nothing" and locks what the
+  // player paid for.
+  private fun held(fail: (BillingResult) -> Unit, then: (List<Purchase>) -> Unit) {
     val params = QueryPurchasesParams.newBuilder().setProductType(ProductType.INAPP).build()
     client.queryPurchasesAsync(params) { result, list ->
-      then(if (result.responseCode == BillingResponseCode.OK) list.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED } else emptyList())
+      if (result.responseCode != BillingResponseCode.OK) return@queryPurchasesAsync fail(result)
+      then(list.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED })
     }
   }
 
@@ -177,7 +188,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
     val args = invoke.parseArgs(IdsArgs::class.java)
     ready { ok ->
       if (ok.responseCode != BillingResponseCode.OK) return@ready failed(invoke, ok)
-      held { list ->
+      held({ failed(invoke, it) }) { list ->
         val out = JSArray()
         for (p in list) {
           acknowledge(p)

@@ -49,16 +49,20 @@ export async function buy(id: string): Promise<Bought> {
   return { state: "failed" };
 }
 
+/** `{ owned: [{ id, proof }] }`, kept to `ids`. Null for no answer. */
+const heldIn = (v: unknown, ids: string[]): Held[] | null =>
+  isObj(v) ? pairs(v.owned, "id", "proof").filter((h) => ids.includes(h.id)) : null;
+
 /** What this store account owns now, among `ids`. A refunded purchase is not
- * in it. Empty when it cannot be read. */
-export async function owned(ids: string[]): Promise<Held[]> {
-  const v = await call("owned", { ids });
-  return isObj(v) ? pairs(v.owned, "id", "proof").filter((h) => ids.includes(h.id)) : [];
+ * in it. Null when the store cannot be asked: outside Tauri, on a desktop, or
+ * when the store does not answer. Keep the last answer then, because reading
+ * null as "owns nothing" locks what a player paid for. */
+export async function owned(ids: string[]): Promise<Held[] | null> {
+  return heldIn(await call("owned", { ids }), ids);
 }
 
 /** The same as `owned`, after asking the store to bring back past purchases.
  * Call it from a button: on iOS it can ask the player to sign in. */
-export async function restore(ids: string[]): Promise<Held[]> {
-  const v = await call("restore", { ids });
-  return isObj(v) ? pairs(v.owned, "id", "proof").filter((h) => ids.includes(h.id)) : [];
+export async function restore(ids: string[]): Promise<Held[] | null> {
+  return heldIn(await call("restore", { ids }), ids);
 }

@@ -382,7 +382,7 @@ await requestReview();
 Buys and restores one-time purchases through the phone's own store:
 StoreKit 2 on iOS 15 and later, and the Play Billing Library 9 on Android.
 On a desktop every command answers an error, and the TypeScript side reads
-that as nothing owned.
+that as a store it cannot ask.
 
 The plugin never decides that a player owns something. It hands the app a
 **proof**, and a server checks that proof with the store:
@@ -404,6 +404,8 @@ store each time.
   from `owned` and from `restore`. Play refunds a purchase with no
   acknowledgement after three days.
 - Neither side treats a refunded or revoked purchase as owned.
+- Neither side answers an error as "owns nothing". `owned` and `restore`
+  answer null when the store cannot be asked.
 
 Register the plugin at launch, so both happen even when the app never opens
 its store screen.
@@ -426,12 +428,17 @@ import { buy, owned, products, restore } from "tauri-plugin-purchase-api";
 
 const [pro] = await products(["app.pro"]);  // { id, price: "49.000 ₫" }
 const out = await buy("app.pro");           // { state: "bought", proof } | { state: "cancelled" | "pending" | "failed" }
-const held = await owned(["app.pro"]);      // [{ id, proof }]
+const held = await owned(["app.pro"]);      // [{ id, proof }], or null when the store cannot be asked
 const back = await restore(["app.pro"]);    // the same, after the store syncs
 ```
 
-None of the four ever rejects. Call `restore` only from a button: on iOS it
-can ask the player to sign in.
+None of the four ever rejects. When `owned` or `restore` answers null, keep
+the last answer: reading null as "owns nothing" locks what a player paid for
+each time the store has a bad moment. Call `restore` only from a button: on
+iOS it can ask the player to sign in.
+
+Ask `owned` again each time the app comes back to the screen. A payment a
+parent approves and a refund both land while the app is away.
 
 ### Testing
 
