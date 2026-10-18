@@ -12,8 +12,8 @@ use tauri::test::{
 use tauri::utils::acl::resolved::{Resolved, ResolvedCommand};
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
-use tauri::{WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_firebase::Config;
+use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_firebase::{Config, CrashExt, Frame};
 
 const COMMANDS: &[&str] = &[
     "mode",
@@ -23,6 +23,10 @@ const COMMANDS: &[&str] = &[
     "get_all",
     "log_event",
     "set_collection",
+    "crash_set_collection",
+    "crash_set_keys",
+    "crash_log",
+    "crash_record",
 ];
 
 /// A mock app has no capability files, so grant every command to every
@@ -148,5 +152,55 @@ fn log_event_and_set_collection_do_nothing_on_desktop() {
     assert_eq!(
         call(&w, "set_collection", json!({ "enabled": true })),
         Value::Null
+    );
+}
+
+#[test]
+fn crash_commands_answer_on_a_desktop() {
+    let w = window();
+    assert_eq!(
+        call(&w, "crash_set_collection", json!({ "enabled": true })),
+        Value::Null
+    );
+    assert_eq!(
+        call(
+            &w,
+            "crash_set_keys",
+            json!({ "keys": { "screen": "home" } })
+        ),
+        Value::Null
+    );
+    assert_eq!(
+        call(&w, "crash_log", json!({ "line": "opened" })),
+        Value::Null
+    );
+    assert_eq!(
+        call(
+            &w,
+            "crash_record",
+            json!({
+                "name": "Error",
+                "message": "boom",
+                "frames": [{ "symbol": "f", "file": "a.js", "line": 3 }]
+            })
+        ),
+        Value::Null
+    );
+}
+
+#[test]
+fn crash_api_does_nothing_on_a_desktop() {
+    let w = window();
+    let handle = w.app_handle();
+    handle.crash().log("x");
+    handle.crash().record("n", "m", &[]);
+    handle.crash().record(
+        "n",
+        "m",
+        &[Frame {
+            symbol: "f".into(),
+            file: "a.rs".into(),
+            line: 1,
+        }],
     );
 }

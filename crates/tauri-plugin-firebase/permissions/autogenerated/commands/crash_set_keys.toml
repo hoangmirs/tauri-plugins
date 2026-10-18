@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-crash-set-keys"
+description = "Enables the crash_set_keys command without any pre-configured scope."
+commands.allow = ["crash_set_keys"]
+
+[[permission]]
+identifier = "deny-crash-set-keys"
+description = "Denies the crash_set_keys command without any pre-configured scope."
+commands.deny = ["crash_set_keys"]

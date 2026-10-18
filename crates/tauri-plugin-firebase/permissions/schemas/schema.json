@@ -307,6 +307,54 @@
           "markdownDescription": "Denies the activate command without any pre-configured scope."
         },
         {
+          "description": "Enables the crash_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-crash-log",
+          "markdownDescription": "Enables the crash_log command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the crash_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-crash-log",
+          "markdownDescription": "Denies the crash_log command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the crash_record command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-crash-record",
+          "markdownDescription": "Enables the crash_record command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the crash_record command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-crash-record",
+          "markdownDescription": "Denies the crash_record command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the crash_set_collection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-crash-set-collection",
+          "markdownDescription": "Enables the crash_set_collection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the crash_set_collection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-crash-set-collection",
+          "markdownDescription": "Denies the crash_set_collection command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the crash_set_keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-crash-set-keys",
+          "markdownDescription": "Enables the crash_set_keys command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the crash_set_keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-crash-set-keys",
+          "markdownDescription": "Denies the crash_set_keys command without any pre-configured scope."
+        },
+        {
           "description": "Enables the fetch command without any pre-configured scope.",
           "type": "string",
           "const": "allow-fetch",
@@ -379,10 +427,10 @@
           "markdownDescription": "Denies the set_defaults command without any pre-configured scope."
         },
         {
-          "description": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`",
+          "description": "Read Remote Config, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read Remote Config and log Analytics events\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`"
+          "markdownDescription": "Read Remote Config, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`"
         }
       ]
     }

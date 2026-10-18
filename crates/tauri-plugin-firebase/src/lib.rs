@@ -1,11 +1,12 @@
 //! `tauri-plugin-firebase`: reads Firebase Remote Config and logs Firebase
-//! Analytics events on iOS and Android.
+//! Analytics events and Crashlytics reports on iOS and Android.
 //!
 //! The Rust side keeps the defaults. On a desktop, and on a phone without its
 //! Firebase file, every command answers from them, so the app never needs a
 //! second path. No command ever returns an error: a Firebase failure reads as
 //! `"failed"`, `false` or the defaults.
 
+mod crash;
 mod values;
 
 use std::sync::Mutex;
@@ -15,6 +16,7 @@ use serde_json::{Map, Value};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime, State};
 
+pub use crash::{Crash, CrashExt, Frame};
 pub use values::Entry;
 
 #[cfg(target_os = "ios")]
@@ -202,7 +204,11 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
             activate,
             get_all,
             log_event,
-            set_collection
+            set_collection,
+            crash::crash_set_collection,
+            crash::crash_set_keys,
+            crash::crash_log,
+            crash::crash_record
         ])
         .setup(move |app, api| {
             app.manage(Defaults(Mutex::new(Map::new())));

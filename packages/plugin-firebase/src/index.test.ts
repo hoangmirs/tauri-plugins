@@ -1,6 +1,20 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { activate, fetch, getAll, init, logEvent, resetForTests, setCollection, setDefaults } from "./index.ts";
+import {
+  activate,
+  crashLog,
+  fetch,
+  getAll,
+  init,
+  logEvent,
+  parseStack,
+  recordError,
+  resetForTests,
+  setCollection,
+  setCrashCollection,
+  setCrashKeys,
+  setDefaults,
+} from "./index.ts";
 import type { Sdk } from "./web.ts";
 
 // `@tauri-apps/api/core` reads `globalThis.isTauri` and
@@ -209,4 +223,79 @@ test("on the Mac, defaults set before init still answer after it", async () => {
     throw new Error("no sdk");
   });
   assert.deepEqual(await getAll(), { a: { value: "true", source: "default" } });
+});
+
+test("parseStack reads a WebKit stack", () => {
+  assert.deepEqual(parseStack("f@https://a/assets/index.js:1:200\n@https://a/x.js:3:4"), [
+    { symbol: "f", file: "https://a/assets/index.js", line: 1 },
+    { symbol: "(anonymous)", file: "https://a/x.js", line: 3 },
+  ]);
+});
+
+test("parseStack reads a V8 stack", () => {
+  assert.deepEqual(parseStack("Error: x\n    at g (https://a/b.js:7:9)\n    at https://a/c.js:2:1"), [
+    { symbol: "g", file: "https://a/b.js", line: 7 },
+    { symbol: "(anonymous)", file: "https://a/c.js", line: 2 },
+  ]);
+});
+
+test("parseStack keeps no frame from a line it cannot read", () => {
+  assert.deepEqual(parseStack("garbage"), []);
+});
+
+test("recordError on a phone sends crash_record with frames", async () => {
+  const calls = setupTauri((cmd) => (cmd === "plugin:firebase|mode" ? "native" : null));
+  await recordError("TypeError", "x is undefined", "f@https://a/b.js:7:9");
+  assert.deepEqual(
+    calls.map((c) => c.cmd),
+    ["plugin:firebase|mode", "plugin:firebase|crash_record"],
+  );
+  assert.deepEqual(calls[1]?.args, {
+    name: "TypeError",
+    message: "x is undefined",
+    frames: [{ symbol: "f", file: "https://a/b.js", line: 7 }],
+  });
+});
+
+test("on a phone, the other crash calls send their commands", async () => {
+  const calls = setupTauri((cmd) => (cmd === "plugin:firebase|mode" ? "native" : null));
+  await setCrashCollection(true);
+  await setCrashKeys({ screen: "home" });
+  await crashLog("opened");
+  assert.deepEqual(
+    calls.map((c) => c.cmd),
+    ["plugin:firebase|mode", "plugin:firebase|crash_set_collection", "plugin:firebase|crash_set_keys", "plugin:firebase|crash_log"],
+  );
+  assert.deepEqual(calls[1]?.args, { enabled: true });
+  assert.deepEqual(calls[2]?.args, { keys: { screen: "home" } });
+  assert.deepEqual(calls[3]?.args, { line: "opened" });
+});
+
+test("a rejected crash invoke does not reject", async () => {
+  setupTauri((cmd) => {
+    if (cmd === "plugin:firebase|mode") return "native";
+    throw new Error("gone");
+  });
+  await setCrashCollection(true);
+  await setCrashKeys({ a: "b" });
+  await crashLog("x");
+  await recordError("Error", "m", "");
+});
+
+test("crash calls on the Mac send nothing", async () => {
+  const calls = setupTauri((cmd) => (cmd === "plugin:firebase|mode" ? "desktop" : null));
+  await setCrashCollection(true);
+  await crashLog("x");
+  await recordError("Error", "m", "f@a.js:1:1");
+  assert.deepEqual(
+    calls.map((c) => c.cmd),
+    ["plugin:firebase|mode"],
+  );
+});
+
+test("crash calls on the web send nothing", async () => {
+  await setCrashCollection(true);
+  await setCrashKeys({ a: "b" });
+  await crashLog("x");
+  await recordError("Error", "m", "f@a.js:1:1");
 });

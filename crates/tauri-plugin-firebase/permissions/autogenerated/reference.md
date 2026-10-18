@@ -1,6 +1,6 @@
 ## Default Permission
 
-Read Remote Config and log Analytics events
+Read Remote Config, log Analytics events and send crash reports
 
 #### This default permission set includes the following:
 
@@ -11,6 +11,10 @@ Read Remote Config and log Analytics events
 - `allow-get-all`
 - `allow-log-event`
 - `allow-set-collection`
+- `allow-crash-set-collection`
+- `allow-crash-set-keys`
+- `allow-crash-log`
+- `allow-crash-record`
 
 ## Permission Table
 
@@ -43,6 +47,110 @@ Enables the activate command without any pre-configured scope.
 <td>
 
 Denies the activate command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-crash-log`
+
+</td>
+<td>
+
+Enables the crash_log command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-crash-log`
+
+</td>
+<td>
+
+Denies the crash_log command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-crash-record`
+
+</td>
+<td>
+
+Enables the crash_record command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-crash-record`
+
+</td>
+<td>
+
+Denies the crash_record command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-crash-set-collection`
+
+</td>
+<td>
+
+Enables the crash_set_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-crash-set-collection`
+
+</td>
+<td>
+
+Denies the crash_set_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-crash-set-keys`
+
+</td>
+<td>
+
+Enables the crash_set_keys command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-crash-set-keys`
+
+</td>
+<td>
+
+Denies the crash_set_keys command without any pre-configured scope.
 
 </td>
 </tr>

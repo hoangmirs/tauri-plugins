@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-crash-log"
+description = "Enables the crash_log command without any pre-configured scope."
+commands.allow = ["crash_log"]
+
+[[permission]]
+identifier = "deny-crash-log"
+description = "Denies the crash_log command without any pre-configured scope."
+commands.deny = ["crash_log"]
