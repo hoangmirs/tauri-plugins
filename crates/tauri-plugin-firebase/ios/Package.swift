@@ -24,6 +24,7 @@ let package = Package(
         .byName(name: "Tauri"),
         .product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk"),
         .product(name: "FirebaseAnalyticsCore", package: "firebase-ios-sdk"),
+        .product(name: "FirebaseCrashlytics", package: "firebase-ios-sdk"),
       ],
       path: "Sources")
   ]
