@@ -2793,6 +2793,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-ads"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tempfile",
+]
+
+[[package]]
 name = "tauri-plugin-firebase"
 version = "0.1.0-alpha.2"
 dependencies = [

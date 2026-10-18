@@ -1,0 +1,10 @@
+[default]
+description = "Show native and rewarded ads, and ask for consent where the law needs it"
+permissions = [
+  "allow-init",
+  "allow-consent",
+  "allow-show-native",
+  "allow-hide-native",
+  "allow-load-rewarded",
+  "allow-show-rewarded",
+]
