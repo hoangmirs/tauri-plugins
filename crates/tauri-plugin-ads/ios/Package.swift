@@ -18,6 +18,9 @@ let package = Package(
     .package(
       url: "https://github.com/googleads/swift-package-manager-google-mobile-ads",
       .upToNextMajor(from: "12.14.0")),
+    .package(
+      url: "https://github.com/googleads/swift-package-manager-google-user-messaging-platform",
+      .upToNextMajor(from: "3.1.0")),
   ],
   targets: [
     .target(
@@ -25,6 +28,9 @@ let package = Package(
       dependencies: [
         .byName(name: "Tauri"),
         .product(name: "GoogleMobileAds", package: "swift-package-manager-google-mobile-ads"),
+        .product(
+          name: "GoogleUserMessagingPlatform",
+          package: "swift-package-manager-google-user-messaging-platform"),
       ],
       path: "Sources")
   ]

@@ -1,6 +1,7 @@
 import GoogleMobileAds
 import Tauri
 import UIKit
+import UserMessagingPlatform
 import WebKit
 
 class SettingsArgs: Decodable {
@@ -8,7 +9,20 @@ class SettingsArgs: Decodable {
   let maxRating: String
 }
 
-class AdsPlugin: Plugin {
+class UnitArgs: Decodable {
+  let unitId: String
+}
+
+class AdsPlugin: Plugin, FullScreenContentDelegate {
+  /// One rewarded ad, loaded before the player asks for it.
+  private var rewarded: RewardedAd?
+  /// The `showRewarded` call waiting for the ad to close.
+  private var showing: Invoke?
+  private var earned = false
+  private lazy var native = NativeCard { [weak self] event in
+    self?.trigger("native", data: ["event": event])
+  }
+
   @objc public func `init`(_ invoke: Invoke) {
     let args = try? invoke.parseArgs(SettingsArgs.self)
     let config = MobileAds.shared.requestConfiguration
@@ -18,6 +32,106 @@ class AdsPlugin: Plugin {
       NSLog("[ads] started")
     }
     invoke.resolve()
+  }
+
+  @objc public func showNative(_ invoke: Invoke) {
+    guard let slot = try? invoke.parseArgs(SlotArgs.self) else {
+      invoke.resolve()
+      return
+    }
+    DispatchQueue.main.async {
+      self.native.show(slot)
+      invoke.resolve()
+    }
+  }
+
+  @objc public func hideNative(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      self.native.hide()
+      invoke.resolve()
+    }
+  }
+
+  /// Google's form shows only where the law asks for it. The answer says
+  /// whether ads may load.
+  @objc public func consent(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters()) { error in
+        guard error == nil else {
+          invoke.resolve(["result": "failed"])
+          return
+        }
+        ConsentForm.loadAndPresentIfRequired(from: Self.topController()) { error in
+          let info = ConsentInformation.shared
+          let result: String
+          if error != nil {
+            result = "failed"
+          } else if info.consentStatus == .notRequired {
+            result = "not_required"
+          } else {
+            result = info.canRequestAds ? "obtained" : "failed"
+          }
+          invoke.resolve(["result": result])
+        }
+      }
+    }
+  }
+
+  @objc public func loadRewarded(_ invoke: Invoke) {
+    guard let args = try? invoke.parseArgs(UnitArgs.self) else {
+      invoke.resolve(["result": "failed"])
+      return
+    }
+    DispatchQueue.main.async {
+      if self.rewarded != nil {
+        invoke.resolve(["result": "ready"])
+        return
+      }
+      RewardedAd.load(with: args.unitId, request: Request()) { ad, error in
+        guard let ad, error == nil else {
+          invoke.resolve(["result": "failed"])
+          return
+        }
+        ad.fullScreenContentDelegate = self
+        self.rewarded = ad
+        invoke.resolve(["result": "ready"])
+      }
+    }
+  }
+
+  @objc public func showRewarded(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      guard let ad = self.rewarded, self.showing == nil, let root = Self.topController() else {
+        invoke.resolve(["result": "failed"])
+        return
+      }
+      self.rewarded = nil
+      self.showing = invoke
+      self.earned = false
+      ad.present(from: root) { self.earned = true }
+    }
+  }
+
+  func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
+    NSLog("[ads] rewarded %@", earned ? "earned" : "closed")
+    showing?.resolve(["result": earned ? "earned" : "closed"])
+    showing = nil
+  }
+
+  func ad(_ ad: FullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: Error) {
+    showing?.resolve(["result": "failed"])
+    showing = nil
+  }
+
+  /// The controller on top of the app's window, which a full-screen ad
+  /// presents from.
+  static func topController() -> UIViewController? {
+    let windows = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+    var top = (windows.first { $0.isKeyWindow } ?? windows.first)?.rootViewController
+    while let next = top?.presentedViewController { top = next }
+    return top
   }
 
   private static func rating(_ text: String) -> GADMaxAdContentRating {

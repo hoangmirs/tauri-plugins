@@ -343,6 +343,30 @@
           "markdownDescription": "Denies the load_rewarded command without any pre-configured scope."
         },
         {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the show_native command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-native",
@@ -367,10 +391,10 @@
           "markdownDescription": "Denies the show_rewarded command without any pre-configured scope."
         },
         {
-          "description": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`",
+          "description": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`"
+          "markdownDescription": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`"
         }
       ]
     }

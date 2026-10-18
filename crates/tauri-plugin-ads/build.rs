@@ -4,7 +4,11 @@ mod build_support;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// `register_listener` and `remove_listener` are the core's own commands for a
+/// mobile plugin's events. Listing them lets a webview hear `native`.
 const COMMANDS: &[&str] = &[
+    "register_listener",
+    "remove_listener",
     "init",
     "consent",
     "show_native",

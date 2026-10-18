@@ -1,6 +1,8 @@
 [default]
 description = "Show native and rewarded ads, and ask for consent where the law needs it"
 permissions = [
+  "allow-register-listener",
+  "allow-remove-listener",
   "allow-init",
   "allow-consent",
   "allow-show-native",

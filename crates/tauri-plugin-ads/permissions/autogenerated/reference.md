@@ -4,6 +4,8 @@ Show native and rewarded ads, and ask for consent where the law needs it
 
 #### This default permission set includes the following:
 
+- `allow-register-listener`
+- `allow-remove-listener`
 - `allow-init`
 - `allow-consent`
 - `allow-show-native`
@@ -120,6 +122,58 @@ Enables the load_rewarded command without any pre-configured scope.
 <td>
 
 Denies the load_rewarded command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
 
 </td>
 </tr>
