@@ -63,7 +63,12 @@ fn link_frameworks(out: &Path) -> Vec<String> {
     let root = out.join("swift-rs");
     let swift_lib = build_support::find_file(&root, "libtauri-plugin-ads.a", 8)
         .unwrap_or_else(|| panic!("no libtauri-plugin-ads.a under {}", root.display()));
-    let mut anchors = anchors_of(&swift_lib);
+    // The plugin's own object needs no anchor: `ios_plugin_binding!` already
+    // refers to it, with a signature an anchor would clash with.
+    let mut anchors: Vec<String> = anchors_of(&swift_lib)
+        .into_iter()
+        .filter(|a| a != "init_plugin_ads")
+        .collect();
     for name in FRAMEWORKS {
         let binary = build_support::framework_binary(&root, name, sim).unwrap_or_else(|| {
             panic!(

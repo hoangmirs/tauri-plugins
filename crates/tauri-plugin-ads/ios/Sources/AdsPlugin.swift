@@ -20,7 +20,7 @@ class AdsPlugin: Plugin {
     invoke.resolve()
   }
 
-  private static func rating(_ text: String) -> MaxAdContentRating {
+  private static func rating(_ text: String) -> GADMaxAdContentRating {
     switch text {
     case "PG": return .parentalGuidance
     case "T": return .teen
