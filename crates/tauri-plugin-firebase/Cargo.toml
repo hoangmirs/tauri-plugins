@@ -1,14 +1,14 @@
 [package]
 name = "tauri-plugin-firebase"
-description = "Tauri plugin that reads Firebase Remote Config and logs Firebase Analytics events, with defaults wherever Firebase is absent"
-version.workspace = true
+description = "Tauri plugin that reads Firebase Remote Config, logs Firebase Analytics events and sends Crashlytics reports, with defaults wherever Firebase is absent"
+version = "0.1.0-alpha.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/tauri-plugin-firebase"
 readme = "../../README.md"
-keywords = ["tauri", "tauri-plugin", "firebase", "remote-config", "analytics"]
+keywords = ["tauri", "tauri-plugin", "firebase", "remote-config", "analytics", "crashlytics"]
 categories = ["gui"]
 links = "tauri-plugin-firebase"
 
