@@ -10,6 +10,7 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigFetchThrottledException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
@@ -22,6 +23,42 @@ class ConfigureArgs {
 @InvokeArg
 class CollectionArgs {
   var enabled: Boolean = false
+}
+
+@InvokeArg
+class CrashKeysArgs {
+  var keys: Map<String, String> = emptyMap()
+}
+
+@InvokeArg
+class CrashLogArgs {
+  var line: String = ""
+}
+
+@InvokeArg
+class CrashFrameArgs {
+  var symbol: String = ""
+  var file: String = ""
+  var line: Int = 0
+}
+
+@InvokeArg
+class CrashRecordArgs {
+  var name: String = ""
+  var message: String = ""
+  var frames: List<CrashFrameArgs> = emptyList()
+}
+
+// Crashlytics groups a non-fatal by its stack, so every frame carries the
+// error's name as its class. A record with no frames still gets one frame,
+// named after the error, so it groups by name too.
+class RecordedError(name: String, message: String, frames: List<CrashFrameArgs>) : Exception(message) {
+  init {
+    stackTrace = frames
+      .map { StackTraceElement(name, it.symbol, it.file, it.line) }
+      .ifEmpty { listOf(StackTraceElement(name, name, null, -1)) }
+      .toTypedArray()
+  }
 }
 
 @TauriPlugin
@@ -116,6 +153,43 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
   fun setCollection(invoke: Invoke) {
     val args = invoke.parseArgs(CollectionArgs::class.java)
     FirebaseAnalytics.getInstance(activity).setAnalyticsCollectionEnabled(args.enabled)
+    invoke.resolve()
+  }
+
+  @Command
+  fun crashSetCollection(invoke: Invoke) = crash(invoke) {
+    it.setCrashlyticsCollectionEnabled(invoke.parseArgs(CollectionArgs::class.java).enabled)
+  }
+
+  @Command
+  fun crashSetKeys(invoke: Invoke) = crash(invoke) { crashlytics ->
+    for ((key, value) in invoke.parseArgs(CrashKeysArgs::class.java).keys) {
+      crashlytics.setCustomKey(key, value)
+    }
+  }
+
+  @Command
+  fun crashLog(invoke: Invoke) = crash(invoke) {
+    it.log(invoke.parseArgs(CrashLogArgs::class.java).line)
+  }
+
+  @Command
+  fun crashRecord(invoke: Invoke) = crash(invoke) {
+    val args = invoke.parseArgs(CrashRecordArgs::class.java)
+    it.recordException(RecordedError(args.name, args.message, args.frames))
+  }
+
+  // Rust's panic hook blocks until each crash method resolves. Resolve here on
+  // the calling thread, never in a Task listener or a post to a looper, so the
+  // hook returns at once. A failed parse or call is dropped: the hook has
+  // nowhere to report it.
+  private fun crash(invoke: Invoke, call: (FirebaseCrashlytics) -> Unit) {
+    if (configured) {
+      try {
+        call(FirebaseCrashlytics.getInstance())
+      } catch (e: Exception) {
+      }
+    }
     invoke.resolve()
   }
 }
