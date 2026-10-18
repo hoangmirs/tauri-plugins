@@ -2,6 +2,7 @@
 members = [
   "crates/tauri-plugin-firebase",
   "crates/tauri-plugin-posthog-anon",
+  "crates/tauri-plugin-purchase",
   "crates/tauri-plugin-silent-mode",
   "crates/tauri-plugin-store-review",
   "crates/tauri-plugin-update-gate",

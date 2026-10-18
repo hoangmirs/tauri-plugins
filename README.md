@@ -377,6 +377,70 @@ import { requestReview } from "tauri-plugin-store-review-api";
 await requestReview();
 ```
 
+## `tauri-plugin-purchase`
+
+Buys and restores one-time purchases through the phone's own store:
+StoreKit 2 on iOS 15 and later, and the Play Billing Library 9 on Android.
+On a desktop every command answers an error, and the TypeScript side reads
+that as nothing owned.
+
+The plugin never decides that a player owns something. It hands the app a
+**proof**, and a server checks that proof with the store:
+
+| Store | Proof | The server asks |
+|---|---|---|
+| App Store | The transaction Apple signed (its JWS) | App Store Server API, Get Transaction Info, for the transaction id in the JWS |
+| Google Play | The purchase token | Play Developer API, `purchases.products.get`, for the token |
+
+A proof can be copied, so a server that only reads it proves nothing. Ask the
+store each time.
+
+### What the plugin does on its own
+
+- **iOS** finishes each verified transaction. It also listens for
+  transactions that complete outside the purchase sheet, such as one a parent
+  approves later, and finishes those.
+- **Android** acknowledges each purchase it sees, from the purchase sheet,
+  from `owned` and from `restore`. Play refunds a purchase with no
+  acknowledgement after three days.
+- Neither side treats a refunded or revoked purchase as owned.
+
+Register the plugin at launch, so both happen even when the app never opens
+its store screen.
+
+### Setup (Rust)
+
+```rust
+#[cfg(mobile)]
+app.handle().plugin(tauri_plugin_purchase::init())?;
+```
+
+Add `purchase:default` to a capability for the phones. Make each product a
+non-consumable (App Store) or a one-time product (Google Play) with the same
+id in both stores.
+
+### Use (TypeScript)
+
+```ts
+import { buy, owned, products, restore } from "tauri-plugin-purchase-api";
+
+const [pro] = await products(["app.pro"]);  // { id, price: "49.000 ₫" }
+const out = await buy("app.pro");           // { state: "bought", proof } | { state: "cancelled" | "pending" | "failed" }
+const held = await owned(["app.pro"]);      // [{ id, proof }]
+const back = await restore(["app.pro"]);    // the same, after the store syncs
+```
+
+None of the four ever rejects. Call `restore` only from a button: on iOS it
+can ask the player to sign in.
+
+### Testing
+
+- **iOS:** a StoreKit configuration file in Xcode runs purchases in the
+  Simulator with no App Store Connect product. TestFlight builds buy in the
+  sandbox, so the server must ask the sandbox when production answers 404.
+- **Android:** purchases work only in an app installed from Google Play, for
+  example from an internal test track, with a license tester account.
+
 ## `tauri-plugin-firebase`
 
 Reads Firebase Remote Config and logs Firebase Analytics events, so an app can

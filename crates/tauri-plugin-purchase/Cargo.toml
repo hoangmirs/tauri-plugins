@@ -1,0 +1,26 @@
+[package]
+name = "tauri-plugin-purchase"
+description = "Tauri plugin that buys and restores one-time purchases through the App Store and Google Play"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-purchase"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "in-app-purchase", "storekit", "billing"]
+categories = ["gui"]
+links = "tauri-plugin-purchase"
+
+[dependencies]
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
