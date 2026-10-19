@@ -108,3 +108,15 @@ fn apple_nm_member_headers_are_read() {
         vec!["GULNSDataZlibErrorDomain".to_string()]
     );
 }
+
+#[test]
+fn a_private_external_is_never_an_anchor() {
+    let nm = "\nUMPNetwork.o:\n0000000000000ac8 (__DATA,__const) weak private external ___block_descriptor_32_e5_v8?0l\n0000000000000000 (__TEXT,__text) external _UMPNetworkReachable\n\nUserMessagingPlatform_vers.o:\n0000000000000048 (__TEXT,__const) external [no dead strip] _UserMessagingPlatformVersionNumber\n\nPrivate.o:\n0000000000000010 (__DATA,__const) private external _UMPHidden\n";
+    assert_eq!(
+        build_support::anchors(nm, &[]),
+        vec![
+            "UMPNetworkReachable".to_string(),
+            "UserMessagingPlatformVersionNumber".to_string()
+        ]
+    );
+}

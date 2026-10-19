@@ -448,6 +448,53 @@ parent approves and a refund both land while the app is away.
 - **Android:** purchases work only in an app installed from Google Play, for
   example from an internal test track, with a license tester account.
 
+## `tauri-plugin-ads`
+
+Shows Google Mobile Ads on iOS and Android: a native ad drawn as a card over
+an empty box the page draws, and rewarded ads. On a desktop every command
+answers its failure value, and nothing shows.
+
+- **Native ad.** The page draws the box, in its own colours, and sends its
+  place, size and colours with `show_native`. The plugin draws the ad's
+  parts on a clear view over the box. On iOS the card rides inside the page's
+  own scroll view, so it scrolls with the page. Google requires a media view
+  of at least 120 x 120 points, so give the box at least that height plus
+  padding.
+- **Rewarded ad.** `load_rewarded` gets one ad ready. `show_rewarded` answers
+  `"earned"`, `"closed"` or `"failed"`.
+- **Consent.** `consent` runs Google's User Messaging Platform, which shows
+  its form only where the law asks for it. Call it before the first ad.
+- **Children.** `init` takes child-directed treatment and the highest content
+  rating. The Android manifest removes the advertising id permission, as
+  Google Play asks of an app for children.
+- **No `-ObjC`.** The crate links Google's prebuilt frameworks itself and
+  loads their objects through one symbol each, as `tauri-plugin-firebase`
+  does. An app must not set `-ObjC`.
+
+No command ever rejects.
+
+### Setup (Rust)
+
+```rust
+.plugin(tauri_plugin_ads::init())
+```
+
+Add `ads:default` to a capability. The app adds its AdMob app id:
+`GADApplicationIdentifier` in its iOS `Info.plist`, and the
+`com.google.android.gms.ads.APPLICATION_ID` meta-data in its Android manifest.
+
+### Use (TypeScript)
+
+```ts
+import { consent, init, loadRewarded, onNative, showNative, showRewarded } from "tauri-plugin-ads-api";
+
+await init({ childDirected: true, maxRating: "G" });
+await consent();
+const stop = await onNative((e) => console.log(e)); // native_loaded, native_failed, native_shown, native_tapped
+await showNative(slot);
+if ((await loadRewarded(unitId)) === "ready") await showRewarded();
+```
+
 ## `tauri-plugin-firebase`
 
 Reads Firebase Remote Config, logs Firebase Analytics events and sends

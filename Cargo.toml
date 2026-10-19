@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/tauri-plugin-ads",
   "crates/tauri-plugin-firebase",
   "crates/tauri-plugin-posthog-anon",
   "crates/tauri-plugin-purchase",

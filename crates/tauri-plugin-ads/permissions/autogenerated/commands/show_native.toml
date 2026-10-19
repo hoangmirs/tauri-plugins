@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-show-native"
+description = "Enables the show_native command without any pre-configured scope."
+commands.allow = ["show_native"]
+
+[[permission]]
+identifier = "deny-show-native"
+description = "Denies the show_native command without any pre-configured scope."
+commands.deny = ["show_native"]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hide-native"
+description = "Enables the hide_native command without any pre-configured scope."
+commands.allow = ["hide_native"]
+
+[[permission]]
+identifier = "deny-hide-native"
+description = "Denies the hide_native command without any pre-configured scope."
+commands.deny = ["hide_native"]
