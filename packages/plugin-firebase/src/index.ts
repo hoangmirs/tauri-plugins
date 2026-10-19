@@ -97,6 +97,51 @@ export async function setCollection(enabled: boolean): Promise<void> {
   await command("set_collection", { enabled }, undefined);
 }
 
+/** One line of a stack trace. */
+export type Frame = { symbol: string; file: string; line: number };
+
+const ANONYMOUS = "(anonymous)";
+const V8_FRAME = /^\s*at\s+(?:(.*?)\s+\()?(.+?):(\d+)(?::\d+)?\)?\s*$/;
+const WEBKIT_FRAME = /^([^@]*)@(.+?):(\d+)(?::\d+)?\s*$/;
+
+/** Reads the frames of a V8 or a WebKit stack. A line it cannot read, such as
+ *  the error's own first line, gives no frame. */
+export function parseStack(stack: string): Frame[] {
+  const frames: Frame[] = [];
+  for (const text of stack.split("\n")) {
+    const m = V8_FRAME.exec(text) ?? WEBKIT_FRAME.exec(text);
+    if (m === null) continue;
+    frames.push({ symbol: m[1]?.trim() || ANONYMOUS, file: m[2] ?? "", line: Number(m[3]) });
+  }
+  return frames;
+}
+
+/** Crash reports exist on a phone with its Firebase file only. Everywhere
+ *  else each crash call does nothing. */
+async function crashCommand(cmd: string, args: Record<string, unknown>): Promise<void> {
+  if ((await modeOf()) !== "native") return;
+  await command(cmd, args, undefined);
+}
+
+export async function setCrashCollection(enabled: boolean): Promise<void> {
+  await crashCommand("crash_set_collection", { enabled });
+}
+
+/** Sets the keys that go with every later crash report. */
+export async function setCrashKeys(keys: Record<string, string>): Promise<void> {
+  await crashCommand("crash_set_keys", { keys });
+}
+
+/** Adds a line to the log that goes with the next crash report. */
+export async function crashLog(line: string): Promise<void> {
+  await crashCommand("crash_log", { line });
+}
+
+/** Reports an error that did not stop the app. */
+export async function recordError(name: string, message: string, stack: string): Promise<void> {
+  await crashCommand("crash_record", { name, message, frames: parseStack(stack) });
+}
+
 export async function resetForTests(): Promise<void> {
   mode = undefined;
   defaults = {};

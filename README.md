@@ -450,8 +450,9 @@ parent approves and a refund both land while the app is away.
 
 ## `tauri-plugin-firebase`
 
-Reads Firebase Remote Config and logs Firebase Analytics events, so an app can
-change values, turn features on and off, and run A/B tests without a release.
+Reads Firebase Remote Config, logs Firebase Analytics events and sends
+Crashlytics crash reports, so an app can change values, turn features on and
+off, run A/B tests without a release, and see why it crashed.
 iOS and Android use Firebase's native SDKs. The web and a Tauri desktop app use
 the Firebase web SDK through the TypeScript package.
 
@@ -501,6 +502,67 @@ Android library removes `AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION` and
 `ACCESS_ADSERVICES_AD_ID` from the merged manifest. Google Play forbids the
 advertising id in an app whose audience includes children.
 
+### Crash reports
+
+Crashlytics runs on iOS and Android only. On the web, on a desktop, and on a
+phone without its Firebase file, each crash call does nothing and returns no
+error.
+
+The web view has four commands. Each needs `firebase:default` in the window's
+capability.
+
+- `setCrashCollection(enabled)` turns report collection on or off.
+- `setCrashKeys(keys)` sets text keys that go with every later report.
+- `crashLog(line)` adds a line to the log that goes with the next report.
+- `recordError(name, message, stack)` reports an error that did not stop the
+  app. The package reads a JavaScript stack of V8 or WebKit style into frames.
+
+Rust code uses `CrashExt`. This is the way to report a Rust panic, because a
+panic hook has no web view.
+
+```rust
+use tauri_plugin_firebase::{CrashExt, Frame};
+
+let crash = app.handle().crash();
+crash.log("panic in the render loop");
+crash.record("PanicError", "index out of bounds", &[Frame {
+    symbol: "render".into(),
+    file: "board.rs".into(),
+    line: 42,
+}]);
+```
+
+Both Rust methods block until the native side answers. Keep these points in
+mind:
+
+- Collection is on when the app starts. To keep development builds out of the
+  console, call `setCrashCollection(false)` in them.
+- Crashlytics writes logs, records and keys a moment later, on its own queue.
+  A call made just before the process stops can be lost, on iOS and on
+  Android. The crash and its stack still arrive.
+- On Android, Tauri runs every native call on the UI thread. A blocking
+  `Crash::log` or `Crash::record` called from that thread never returns. Never
+  call the Rust API from the Android UI thread. From a panic hook, call it
+  from a new thread.
+
+#### What the app adds for readable frames
+
+Without these steps, a crash still arrives but its frames show addresses and
+obfuscated names.
+
+- iOS: upload the app's dSYM files with Crashlytics' `upload-symbols` tool
+  after each build.
+- Android: the library links `firebase-crashlytics-ndk`, so a crash in the
+  app's native library reaches Crashlytics. For readable native frames, the
+  app applies the Crashlytics Gradle plugin and uploads its native symbols.
+  For readable Kotlin frames in a release build, the app also uploads the R8
+  mapping file.
+- Android: the library ships `crashlytics.xml`, which sets
+  `com.google.firebase.crashlytics.RequireBuildId` to `false`. Without it, an
+  app that does not apply the Crashlytics Gradle plugin has no build ID, and
+  Crashlytics stops the app as it starts. An app that applies the plugin still
+  gets its build ID.
+
 ### Build notes
 
 - iOS: Firebase Analytics ships as prebuilt static frameworks. `build.rs`
@@ -536,7 +598,19 @@ and `google-services.json` in the Android app, with Google's Gradle plugin.
 ### Use (TypeScript)
 
 ```ts
-import { activate, fetch, getAll, init, logEvent, setCollection, setDefaults } from "tauri-plugin-firebase-api";
+import {
+  activate,
+  crashLog,
+  fetch,
+  getAll,
+  init,
+  logEvent,
+  recordError,
+  setCollection,
+  setCrashCollection,
+  setCrashKeys,
+  setDefaults,
+} from "tauri-plugin-firebase-api";
 
 // The web and the desktop only. A phone reads its own Firebase file.
 await init({ options: firebaseWebConfig, minimumFetchIntervalMillis: 15 * 60_000 });
@@ -550,6 +624,15 @@ if ((await fetch()) === "fetched") {
 
 await setCollection(playerAllowsCounts);
 await logEvent("round_ended", { game: "chess", seats: 2 });
+
+await setCrashCollection(!isDevelopmentBuild);
+await setCrashKeys({ game: "chess" });
+await crashLog("round started");
+try {
+  await loadBoard();
+} catch (error) {
+  if (error instanceof Error) await recordError(error.name, error.message, error.stack ?? "");
+}
 ```
 
 On the web the package loads `firebase` (12.8.0 or later) with a dynamic

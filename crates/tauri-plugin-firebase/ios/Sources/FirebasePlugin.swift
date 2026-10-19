@@ -1,5 +1,6 @@
 import FirebaseAnalytics
 import FirebaseCore
+import FirebaseCrashlytics
 import FirebaseRemoteConfig
 import Tauri
 
@@ -9,6 +10,26 @@ class ConfigureArgs: Decodable {
 
 class CollectionArgs: Decodable {
   let enabled: Bool
+}
+
+class CrashKeysArgs: Decodable {
+  let keys: [String: String]
+}
+
+class CrashLogArgs: Decodable {
+  let line: String
+}
+
+class CrashFrameArgs: Decodable {
+  let symbol: String
+  let file: String
+  let line: Int
+}
+
+class CrashRecordArgs: Decodable {
+  let name: String
+  let message: String
+  let frames: [CrashFrameArgs]
 }
 
 class FirebasePlugin: Plugin {
@@ -100,6 +121,45 @@ class FirebasePlugin: Plugin {
   @objc public func setCollection(_ invoke: Invoke) {
     if let args = try? invoke.parseArgs(CollectionArgs.self) {
       Analytics.setAnalyticsCollectionEnabled(args.enabled)
+    }
+    invoke.resolve()
+  }
+
+  // Rust calls the four crash methods from its panic hook, which can run on the
+  // main thread and blocks until the invoke resolves. Each one calls
+  // Crashlytics and resolves on the calling thread, so the hook cannot wait on
+  // itself.
+  @objc public func crashSetCollection(_ invoke: Invoke) {
+    if configured, let args = try? invoke.parseArgs(CollectionArgs.self) {
+      Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(args.enabled)
+    }
+    invoke.resolve()
+  }
+
+  @objc public func crashSetKeys(_ invoke: Invoke) {
+    if configured, let args = try? invoke.parseArgs(CrashKeysArgs.self) {
+      let crashlytics = Crashlytics.crashlytics()
+      for (key, value) in args.keys {
+        crashlytics.setCustomValue(value, forKey: key)
+      }
+    }
+    invoke.resolve()
+  }
+
+  @objc public func crashLog(_ invoke: Invoke) {
+    if configured, let args = try? invoke.parseArgs(CrashLogArgs.self) {
+      Crashlytics.crashlytics().log(args.line)
+    }
+    invoke.resolve()
+  }
+
+  @objc public func crashRecord(_ invoke: Invoke) {
+    if configured, let args = try? invoke.parseArgs(CrashRecordArgs.self) {
+      let exception = ExceptionModel(name: args.name, reason: args.message)
+      exception.stackTrace = args.frames.map {
+        StackFrame(symbol: $0.symbol, file: $0.file, line: $0.line)
+      }
+      Crashlytics.crashlytics().record(exceptionModel: exception)
     }
     invoke.resolve()
   }

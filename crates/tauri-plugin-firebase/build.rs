@@ -12,6 +12,10 @@ const COMMANDS: &[&str] = &[
     "get_all",
     "log_event",
     "set_collection",
+    "crash_set_collection",
+    "crash_set_keys",
+    "crash_log",
+    "crash_record",
 ];
 
 /// Firebase Analytics ships as prebuilt static frameworks. Swift Package

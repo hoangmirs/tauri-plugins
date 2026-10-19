@@ -1,5 +1,5 @@
 [default]
-description = "Read Remote Config and log Analytics events"
+description = "Read Remote Config, log Analytics events and send crash reports"
 permissions = [
   "allow-mode",
   "allow-set-defaults",
@@ -8,4 +8,8 @@ permissions = [
   "allow-get-all",
   "allow-log-event",
   "allow-set-collection",
+  "allow-crash-set-collection",
+  "allow-crash-set-keys",
+  "allow-crash-log",
+  "allow-crash-record",
 ]

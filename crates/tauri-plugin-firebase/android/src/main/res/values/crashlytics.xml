@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Without the Crashlytics Gradle plugin an app has no build ID, and
+       Crashlytics then throws as Firebase starts, which stops the app at
+       launch. An app that applies the Gradle plugin still gets its build ID. -->
+  <bool name="com.google.firebase.crashlytics.RequireBuildId">false</bool>
+</resources>
