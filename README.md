@@ -377,6 +377,42 @@ import { requestReview } from "tauri-plugin-store-review-api";
 await requestReview();
 ```
 
+## `tauri-plugin-keep`
+
+Keeps a few small text values on an iPhone or iPad after the app is deleted,
+so a reinstall on the same device reads them back. Each value is a Keychain
+item, saved as "after first unlock, this device only" and never
+synchronized: it stays on this device, out of iCloud and out of a backup
+moved to another phone. Erasing the device removes it.
+
+iOS keeps an app's Keychain items when the app is deleted, and apps have
+relied on that for years. Apple does not document it, so read a missing value
+as a fresh install, never as an error.
+
+Everywhere but iOS, `get` answers `null` and `set` and `remove` do nothing.
+On Android, Auto Backup already restores an app's data after a reinstall.
+
+A key is 1 to 64 letters, digits, `.`, `-` or `_`. A value is at most 64 KiB
+of text. The Keychain is for small items.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_keep::init())?;
+```
+
+Add `keep:default` to a capability.
+
+### Use (TypeScript)
+
+```ts
+import { invoke } from "@tauri-apps/api/core";
+
+await invoke("plugin:keep|set", { key: "kept", value: JSON.stringify(state) });
+const kept = await invoke<string | null>("plugin:keep|get", { key: "kept" });
+await invoke("plugin:keep|remove", { key: "kept" });
+```
+
 ## `tauri-plugin-purchase`
 
 Buys and restores one-time purchases through the phone's own store:

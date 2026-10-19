@@ -2815,6 +2815,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-keep"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-posthog-anon"
 version = "0.1.0-alpha.1"
 dependencies = [
