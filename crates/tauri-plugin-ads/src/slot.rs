@@ -28,6 +28,14 @@ pub struct Slot {
     /// The scroll box's content height, which picks the native scroll view
     /// the card rides in.
     pub scroll_height: f64,
+    /// The visible part of the scroll box on screen, top and bottom, for
+    /// example above a fixed tab bar. Android clips the card to it, because
+    /// its card sits over the whole page. iOS needs neither: its card rides in
+    /// the scroll box, under anything fixed on top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_top: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_bottom: Option<f64>,
     /// Colours as CSS `rgb()` text.
     pub ink: String,
     pub muted: String,
@@ -49,5 +57,18 @@ mod tests {
         assert!((slot.y - 900.0).abs() < f64::EPSILON);
         assert!((slot.h - 140.0).abs() < f64::EPSILON);
         assert!((slot.scroll_height - 1200.0).abs() < f64::EPSILON);
+        assert!(slot.clip_top.is_none());
+    }
+
+    #[test]
+    fn a_slot_reads_the_visible_part_of_its_scroll_box() {
+        let slot: Slot = serde_json::from_str(
+            r#"{"unitId":"u","x":0,"y":900,"vx":16,"vy":400,"w":343,"h":140,"scrollHeight":1200,
+               "clipTop":0,"clipBottom":590,
+               "ink":"","muted":"","button":"","edge":""}"#,
+        )
+        .unwrap();
+        assert_eq!(slot.clip_top, Some(0.0));
+        assert_eq!(slot.clip_bottom, Some(590.0));
     }
 }

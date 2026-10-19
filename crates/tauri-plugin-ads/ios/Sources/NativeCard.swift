@@ -12,6 +12,9 @@ class SlotArgs: Decodable {
   let w: Double
   let h: Double
   let scrollHeight: Double
+  /// Android's clip. The card here rides in the scroll box, under the tab bar.
+  let clipTop: Double?
+  let clipBottom: Double?
   let ink: String
   let muted: String
   let button: String

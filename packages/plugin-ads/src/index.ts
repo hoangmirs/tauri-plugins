@@ -16,6 +16,10 @@ export type Slot = {
   w: number;
   h: number;
   scrollHeight: number;
+  /** The visible part of the scroll box on screen, for example above a fixed
+   * tab bar. Android clips the card to it. */
+  clipTop?: number;
+  clipBottom?: number;
   ink: string;
   muted: string;
   button: string;

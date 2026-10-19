@@ -32,6 +32,8 @@ class SlotArgs {
   var w: Double = 0.0
   var h: Double = 0.0
   var scrollHeight: Double = 0.0
+  var clipTop: Double? = null
+  var clipBottom: Double? = null
   var ink: String = ""
   var muted: String = ""
   var button: String = ""
@@ -48,6 +50,9 @@ class SlotArgs {
 class NativeCard(private val activity: Activity, private val send: (String) -> Unit) {
   private var loader: AdLoader? = null
   private var card: NativeAdView? = null
+  /** The visible part of the page's scroll box. The card sits inside it, so it
+   *  never draws over the tab bar or past the screen's edge. */
+  private val clip = FrameLayout(activity).apply { clipChildren = true }
   private var slot: SlotArgs? = null
   /** Set by `hide`. An ad that arrives after the page left the slot stays
    *  hidden until the next `show`. */
@@ -86,7 +91,7 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
 
   fun hide() {
     hidden = true
-    card?.visibility = View.GONE
+    clip.visibility = View.GONE
   }
 
   private fun px(dp: Double) = (dp * density).toInt()
@@ -151,14 +156,23 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
       setStroke(px(2.0), rgb(slot.edge) ?: Color.GRAY)
     }
 
-    if (card.parent !== root) {
-      (card.parent as? ViewGroup)?.removeView(card)
-      root.addView(card)
+    if (clip.parent !== root) {
+      (clip.parent as? ViewGroup)?.removeView(clip)
+      root.addView(clip)
     }
+    if (card.parent !== clip) {
+      (card.parent as? ViewGroup)?.removeView(card)
+      clip.addView(card)
+    }
+    val top = slot.clipTop ?: 0.0
+    val bottom = slot.clipBottom ?: (web.height / density).toDouble()
+    clip.layoutParams = FrameLayout.LayoutParams(web.width, px(max(0.0, bottom - top)))
+    clip.x = web.x
+    clip.y = web.y + px(top)
     card.layoutParams = FrameLayout.LayoutParams(px(slot.w), px(slot.h))
-    card.x = web.x + px(slot.vx)
-    card.y = web.y + px(slot.vy)
-    card.visibility = if (hidden) View.GONE else View.VISIBLE
+    card.x = px(slot.vx).toFloat()
+    card.y = px(slot.vy - top).toFloat()
+    clip.visibility = if (hidden) View.GONE else View.VISIBLE
 
     val side = 120.0
     val pad = max(8.0, (slot.h - side) / 2)
