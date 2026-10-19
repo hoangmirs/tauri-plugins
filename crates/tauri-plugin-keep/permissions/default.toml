@@ -1,0 +1,3 @@
+[default]
+description = "Read, write and remove the values this app keeps"
+permissions = ["allow-get", "allow-set", "allow-remove"]

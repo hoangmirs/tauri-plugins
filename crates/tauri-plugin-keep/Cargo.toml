@@ -1,0 +1,26 @@
+[package]
+name = "tauri-plugin-keep"
+description = "Tauri plugin that keeps a few small values on an iPhone or iPad after the app is deleted"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-keep"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "ios", "keychain", "storage"]
+categories = ["gui"]
+links = "tauri-plugin-keep"
+
+[dependencies]
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
