@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +35,7 @@ class SlotArgs {
   var scrollHeight: Double = 0.0
   var clipTop: Double? = null
   var clipBottom: Double? = null
+  var label: String? = null
   var ink: String = ""
   var muted: String = ""
   var button: String = ""
@@ -52,7 +54,8 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
   private var card: NativeAdView? = null
   /** The visible part of the page's scroll box. The card sits inside it, so it
    *  never draws over the tab bar or past the screen's edge. */
-  private val clip = FrameLayout(activity).apply { clipChildren = true }
+  private var page: WebView? = null
+  private val clip = ClipBox(activity) { page }
   private var slot: SlotArgs? = null
   /** Set by `hide`. An ad that arrives after the page left the slot stays
    *  hidden until the next `show`. */
@@ -105,8 +108,7 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
     media.background = GradientDrawable().apply { cornerRadius = 18 * density }
     card.mediaView = media
 
-    label.text = " Ad "
-    label.textSize = 15f
+    label.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
     label.typeface = Typeface.DEFAULT_BOLD
     label.setTextColor(Color.rgb(41, 33, 0))
     label.background = GradientDrawable().apply {
@@ -114,14 +116,14 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
       setColor(Color.rgb(255, 212, 77))
     }
 
-    headline.textSize = 17f
+    headline.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 17f)
     headline.typeface = Typeface.DEFAULT_BOLD
     headline.maxLines = 1
     headline.ellipsize = TextUtils.TruncateAt.END
     headline.text = ad.headline
     card.headlineView = headline
 
-    line.textSize = 15f
+    line.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15f)
     line.maxLines = 1
     line.ellipsize = TextUtils.TruncateAt.END
     line.text = ad.advertiser ?: ad.body
@@ -129,7 +131,7 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
 
     // Google takes the tap on the whole card. The button only shows the words.
     action.text = ad.callToAction
-    action.textSize = 16f
+    action.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16f)
     action.typeface = Typeface.DEFAULT_BOLD
     action.gravity = Gravity.CENTER
     action.setPadding(px(14.0), 0, px(14.0), 0)
@@ -143,7 +145,8 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
   private fun place() {
     val card = card ?: return
     val slot = slot ?: return
-    val web = webView(activity.window.decorView) ?: return
+    val web = page ?: webView(activity.window.decorView)?.also { page = it } ?: return
+    label.text = " ${slot.label ?: "Ad"} "
     val root = web.parent as? ViewGroup ?: return
 
     val ink = rgb(slot.ink) ?: Color.BLACK

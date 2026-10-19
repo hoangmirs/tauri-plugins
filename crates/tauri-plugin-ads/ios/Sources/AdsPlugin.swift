@@ -19,14 +19,25 @@ class AdsPlugin: Plugin, FullScreenContentDelegate {
   /// The `showRewarded` call waiting for the ad to close.
   private var showing: Invoke?
   private var earned = false
-  private lazy var native = NativeCard { [weak self] event in
-    self?.trigger("native", data: ["event": event])
+  /// The web view this plugin belongs to. With two iPad windows, a search of
+  /// every window could find the other one.
+  private weak var web: WKWebView?
+  /// From `init`. A child cannot give consent, so the consent form is told.
+  private var childDirected = true
+  private lazy var native = NativeCard(
+    send: { [weak self] event in self?.trigger("native", data: ["event": event]) },
+    webView: { [weak self] in self?.web })
+
+  override func load(webview: WKWebView) {
+    web = webview
   }
 
   @objc public func `init`(_ invoke: Invoke) {
     let args = try? invoke.parseArgs(SettingsArgs.self)
+    childDirected = args?.childDirected ?? true
     let config = MobileAds.shared.requestConfiguration
     config.tagForChildDirectedTreatment = NSNumber(value: args?.childDirected ?? true)
+    config.tagForUnderAgeOfConsent = NSNumber(value: args?.childDirected ?? true)
     config.maxAdContentRating = Self.rating(args?.maxRating ?? "G")
     MobileAds.shared.start { _ in
       NSLog("[ads] started")
@@ -56,7 +67,9 @@ class AdsPlugin: Plugin, FullScreenContentDelegate {
   /// whether ads may load.
   @objc public func consent(_ invoke: Invoke) {
     DispatchQueue.main.async {
-      ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters()) { error in
+      let parameters = RequestParameters()
+      parameters.isTaggedForUnderAgeOfConsent = self.childDirected
+      ConsentInformation.shared.requestConsentInfoUpdate(with: parameters) { error in
         guard error == nil else {
           invoke.resolve(["result": "failed"])
           return

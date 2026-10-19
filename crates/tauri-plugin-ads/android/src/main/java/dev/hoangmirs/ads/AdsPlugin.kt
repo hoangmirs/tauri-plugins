@@ -41,6 +41,8 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
   /** The `showRewarded` call waiting for the ad to close. */
   private var showing: Invoke? = null
   private var earned = false
+  /** From `init`. A child cannot give consent, so the consent form is told. */
+  private var childDirected = true
   private val native by lazy {
     NativeCard(activity) { event -> trigger("native", JSObject().put("event", event)) }
   }
@@ -65,10 +67,15 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun init(invoke: Invoke) {
     val args = invoke.parseArgs(SettingsArgs::class.java)
+    childDirected = args.childDirected
     val config = RequestConfiguration.Builder()
       .setTagForChildDirectedTreatment(
         if (args.childDirected) RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_TRUE
         else RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_FALSE
+      )
+      .setTagForUnderAgeOfConsent(
+        if (args.childDirected) RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_TRUE
+        else RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_FALSE
       )
       .setMaxAdContentRating(rating(args.maxRating))
       .build()
@@ -86,7 +93,7 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
       val info = UserMessagingPlatform.getConsentInformation(activity)
       info.requestConsentInfoUpdate(
         activity,
-        ConsentRequestParameters.Builder().build(),
+        ConsentRequestParameters.Builder().setTagForUnderAgeOfConsent(childDirected).build(),
         {
           UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { error ->
             val answer = when {

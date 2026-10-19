@@ -20,6 +20,9 @@ export type Slot = {
    * tab bar. Android clips the card to it. */
   clipTop?: number;
   clipBottom?: number;
+  /** The words on the ad label, in the player's language. The plugin shows
+   * "Ad" without it, because Google requires a visible ad label. */
+  label?: string;
   ink: string;
   muted: string;
   button: string;

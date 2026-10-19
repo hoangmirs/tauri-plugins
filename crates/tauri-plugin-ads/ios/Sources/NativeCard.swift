@@ -15,6 +15,8 @@ class SlotArgs: Decodable {
   /// Android's clip. The card here rides in the scroll box, under the tab bar.
   let clipTop: Double?
   let clipBottom: Double?
+  /// The words on the ad label, in the player's language.
+  let label: String?
   let ink: String
   let muted: String
   let button: String
@@ -38,9 +40,19 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   private let headline = UILabel()
   private let line = UILabel()
   private let action = UIButton(type: .custom)
+  private let webView: () -> WKWebView?
+  /// The visible part of the page's scroll box, for a card that cannot ride
+  /// in the scroll box itself. It keeps the card off the tab bar.
+  private let clip: UIView = {
+    let view = UIView()
+    view.clipsToBounds = true
+    view.backgroundColor = .clear
+    return view
+  }()
 
-  init(send: @escaping (String) -> Void) {
+  init(send: @escaping (String) -> Void, webView: @escaping () -> WKWebView?) {
     self.send = send
+    self.webView = webView
   }
 
   func show(_ slot: SlotArgs) {
@@ -62,6 +74,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   func hide() {
     hidden = true
     card?.isHidden = true
+    clip.isHidden = true
   }
 
   func adLoader(_ adLoader: AdLoader, didReceive nativeAd: NativeAd) {
@@ -95,7 +108,6 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     media.mediaContent = nativeAd.mediaContent
     card.mediaView = media
 
-    label.text = " Ad "
     label.font = Self.rounded(15, .heavy)
     label.textColor = UIColor(red: 0.16, green: 0.13, blue: 0, alpha: 1)
     label.backgroundColor = UIColor(red: 1, green: 0.83, blue: 0.30, alpha: 1)
@@ -124,7 +136,8 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   }
 
   private func place() {
-    guard let card, let slot, let web = Self.webView() else { return }
+    guard let card, let slot, let web = webView() ?? Self.findWebView() else { return }
+    label.text = " \(slot.label ?? "Ad") "
     let w = CGFloat(slot.w), h = CGFloat(slot.h)
 
     let ink = Self.rgb(slot.ink) ?? .label
@@ -137,12 +150,20 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     // WebKit gives each scrolling box of the page its own scroll view. The
     // card rides in the one as tall as the page's box, so it scrolls with the
     // page and never lags.
+    // A box that does not overflow has no scroll view of its own. The card
+    // then sits over the page, clipped to the box's visible part.
     if let scroller = Self.scroller(in: web.scrollView, height: CGFloat(slot.scrollHeight), skip: web.scrollView) {
       if card.superview !== scroller { scroller.addSubview(card) }
       card.frame = CGRect(x: slot.x, y: slot.y, width: w, height: h)
+      clip.isHidden = true
     } else {
-      if card.superview !== web { web.addSubview(card) }
-      card.frame = CGRect(x: slot.vx, y: slot.vy, width: w, height: h)
+      let top = CGFloat(slot.clipTop ?? 0)
+      let bottom = CGFloat(slot.clipBottom ?? Double(web.bounds.height))
+      if clip.superview !== web { web.addSubview(clip) }
+      clip.frame = CGRect(x: 0, y: top, width: web.bounds.width, height: max(0, bottom - top))
+      if card.superview !== clip { clip.addSubview(card) }
+      card.frame = CGRect(x: slot.vx, y: slot.vy - top, width: w, height: h)
+      clip.isHidden = hidden
     }
     card.isHidden = hidden
 
@@ -158,7 +179,8 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     action.frame = CGRect(x: tx, y: h - pad - 40, width: max(action.bounds.width + 28, 96), height: 40)
   }
 
-  private static func webView() -> WKWebView? {
+  /// Used only before the plugin hears of its web view.
+  private static func findWebView() -> WKWebView? {
     UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
       .flatMap { $0.windows }

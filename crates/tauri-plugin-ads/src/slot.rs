@@ -12,6 +12,10 @@ pub struct Settings {
     pub max_rating: String,
 }
 
+fn ad() -> String {
+    "Ad".to_string()
+}
+
 /// The page's empty box that the native ad sits in, in CSS pixels.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +40,10 @@ pub struct Slot {
     pub clip_top: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip_bottom: Option<f64>,
+    /// The words on the ad label, in the player's language. Google requires a
+    /// visible ad label, so a slot without one shows "Ad".
+    #[serde(default = "ad")]
+    pub label: String,
     /// Colours as CSS `rgb()` text.
     pub ink: String,
     pub muted: String,
@@ -58,6 +66,7 @@ mod tests {
         assert!((slot.h - 140.0).abs() < f64::EPSILON);
         assert!((slot.scroll_height - 1200.0).abs() < f64::EPSILON);
         assert!(slot.clip_top.is_none());
+        assert_eq!(slot.label, "Ad");
     }
 
     #[test]
@@ -70,5 +79,15 @@ mod tests {
         .unwrap();
         assert_eq!(slot.clip_top, Some(0.0));
         assert_eq!(slot.clip_bottom, Some(590.0));
+    }
+
+    #[test]
+    fn a_slot_carries_the_app_s_words_for_the_ad_label() {
+        let slot: Slot = serde_json::from_str(
+            r#"{"unitId":"u","x":0,"y":0,"vx":0,"vy":0,"w":1,"h":1,"scrollHeight":1,
+               "label":"Quảng cáo","ink":"","muted":"","button":"","edge":""}"#,
+        )
+        .unwrap();
+        assert_eq!(slot.label, "Quảng cáo");
     }
 }
