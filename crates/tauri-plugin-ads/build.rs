@@ -49,7 +49,7 @@ const SKIP: &[&str] = &["Tauri.o", "SwiftRs.o"];
 
 fn anchors_of(lib: &Path) -> Vec<String> {
     let nm = Command::new("nm")
-        .arg("-gU")
+        .arg("-gUm")
         .arg(lib)
         .output()
         .unwrap_or_else(|e| panic!("cannot run nm on {}: {e}", lib.display()));

@@ -48,7 +48,7 @@ fn find_dir(root: &Path, wanted: &str, depth: usize) -> Option<PathBuf> {
     dirs.iter().find_map(|d| find_dir(d, wanted, depth - 1))
 }
 
-/// One defined global symbol from each object in `nm -gU` output, skipping
+/// One defined global symbol from each object in `nm -gU` or `nm -gUm` output, skipping
 /// the objects named in `skip`. A reference to any symbol of an object makes
 /// the linker load all of it, Objective-C categories included.
 pub fn anchors(nm: &str, skip: &[&str]) -> Vec<String> {
@@ -68,17 +68,26 @@ pub fn anchors(nm: &str, skip: &[&str]) -> Vec<String> {
         if taken || member.is_none() {
             continue;
         }
-        let mut parts = line.split_whitespace();
-        let (Some(_addr), Some(kind), Some(name)) = (parts.next(), parts.next(), parts.next())
-        else {
-            continue;
-        };
-        if matches!(kind, "T" | "D" | "S") {
+        if let Some(name) = linkable(line) {
             out.push(name.strip_prefix('_').unwrap_or(name).to_string());
             taken = true;
         }
     }
     out
+}
+
+/// The symbol on one line of `nm -gU` or `nm -gUm` output, when another
+/// object can link to it. A private external is left out: the archive's
+/// index omits it, so a reference to it never loads its object.
+fn linkable(line: &str) -> Option<&str> {
+    let mut parts = line.split_whitespace();
+    let (_addr, kind) = (parts.next()?, parts.next()?);
+    if kind.starts_with("(__") {
+        let external = line.contains(" external ") && !line.contains("private external");
+        return if external { parts.last() } else { None };
+    }
+    let name = parts.next()?;
+    matches!(kind, "T" | "D" | "S").then_some(name)
 }
 
 /// The first file named `wanted` under `root`, searched to `depth` levels.
