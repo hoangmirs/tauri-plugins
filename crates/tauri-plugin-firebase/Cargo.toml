@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/tauri-plugin-firebase"
 readme = "../../README.md"
-keywords = ["tauri", "tauri-plugin", "firebase", "remote-config", "analytics", "crashlytics"]
+keywords = ["tauri", "tauri-plugin", "firebase", "remote-config", "analytics"]
 categories = ["gui"]
 links = "tauri-plugin-firebase"
 
