@@ -1,22 +1,20 @@
 //! Firebase Remote Config as a source, for an app that keeps it behind the
-//! global file's `source` switch. Only an app that imports this path bundles
-//! Firebase.
+//! global file's `source` switch. The app passes `tauri-plugin-firebase-api`
+//! in, so this package depends on no Firebase package.
 
 import type { FirebaseAdapter } from "./index.ts";
 import type { Part } from "./types.ts";
 
-type Api = {
+/** The part of `tauri-plugin-firebase-api` the adapter uses. */
+export type FirebaseApi = {
   getAll(): Promise<Record<string, { value: string; source: string }>>;
   fetch(): Promise<string>;
   activate(): Promise<boolean>;
   listen(on: (keys: string[]) => void): Promise<() => void>;
 };
 
-// Loaded on first use, so this module loads even before the Firebase package is built.
-const load = (): Promise<Api> => import("tauri-plugin-firebase-api") as Promise<Api>;
-
-export function firebaseAdapter(api?: Api): FirebaseAdapter {
-  const get = () => (api ? Promise.resolve(api) : load());
+export function firebaseAdapter(api: FirebaseApi): FirebaseAdapter {
+  const get = async () => api;
   return {
     async values() {
       try {

@@ -126,15 +126,17 @@ and variant once per launch.
 ### Firebase as a source
 
 ```ts
+import * as firebase from "tauri-plugin-firebase-api";
 import { firebaseAdapter } from "tauri-plugin-remote-settings-api/firebase";
 
-init({ /* … */, defaultSource: "firebase", firebase: { adapter: firebaseAdapter(), listen: () => liveOn } });
+init({ /* … */, defaultSource: "firebase", firebase: { adapter: firebaseAdapter(firebase), listen: () => liveOn } });
 ```
 
 `source` in the global file chooses `growthbook` or `firebase`. A global file
 with no readable `source` gives `defaultSource`, else `growthbook`. Fetched
-Remote Config values activate at the next apply. The adapter needs
-`tauri-plugin-firebase-api`.
+Remote Config values activate at the next apply. The app passes
+`tauri-plugin-firebase-api` to the adapter, so an app with no Firebase never
+installs it.
 
 ### Attributes
 

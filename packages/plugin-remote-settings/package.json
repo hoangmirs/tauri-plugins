@@ -42,18 +42,11 @@
     "@growthbook/growthbook": "^1.8.0"
   },
   "peerDependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "tauri-plugin-firebase-api": ">=0.1.0-alpha.4"
-  },
-  "peerDependenciesMeta": {
-    "tauri-plugin-firebase-api": {
-      "optional": true
-    }
+    "@tauri-apps/api": "^2.11.1"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.11.1",
     "@types/node": "26.6.1",
-    "tauri-plugin-firebase-api": "0.1.0-alpha.4",
     "typescript": "7.0.2"
   },
   "license": "MIT"
