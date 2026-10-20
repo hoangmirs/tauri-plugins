@@ -29,6 +29,13 @@ export type Sdk = {
   initializeAnalytics(app: unknown, options: { config: { send_page_view: boolean } }): unknown;
   logEvent(analytics: unknown, name: string, params?: Params): void;
   setAnalyticsCollectionEnabled(analytics: unknown, enabled: boolean): void;
+  onConfigUpdate(rc: RemoteConfig, observer: UpdateObserver): () => void;
+};
+
+type UpdateObserver = {
+  next(update: { getUpdatedKeys(): Set<string> }): void;
+  error(e: unknown): void;
+  complete(): void;
 };
 
 export type Loader = () => Promise<Sdk>;
@@ -103,6 +110,29 @@ export async function activate(): Promise<boolean> {
     return await sdk.activate(rc);
   } catch {
     return false;
+  }
+}
+
+/** Calls `on` after each publish the SDK fetched. With no SDK, or when the
+ *  SDK refuses, nothing is heard and the stop does nothing. */
+export async function listen(on: (keys: string[]) => void): Promise<() => void> {
+  await state.started;
+  const { sdk, rc } = state;
+  if (!sdk || !rc) return () => {};
+  try {
+    return sdk.onConfigUpdate(rc, {
+      next: (update) => {
+        try {
+          on([...update.getUpdatedKeys()]);
+        } catch {
+          /* the app's handler failed; the stream goes on */
+        }
+      },
+      error: () => {},
+      complete: () => {},
+    });
+  } catch {
+    return () => {};
   }
 }
 

@@ -6,6 +6,7 @@ import {
   fetch,
   getAll,
   init,
+  listen,
   logEvent,
   parseStack,
   recordError,
@@ -23,8 +24,13 @@ import type { Sdk } from "./web.ts";
 type Globals = Record<string, unknown>;
 type Call = { cmd: string; args: unknown };
 
+/** The channels `addPluginListener` made, by id, so a test can send an event. */
+const channels = new Map<number, (raw: unknown) => void>();
+
 function setupTauri(answer: (cmd: string, args: unknown) => unknown): Call[] {
   const calls: Call[] = [];
+  channels.clear();
+  let next = 1;
   (globalThis as Globals).isTauri = true;
   (globalThis as Globals).window = globalThis;
   (globalThis as Globals).__TAURI_INTERNALS__ = {
@@ -32,9 +38,19 @@ function setupTauri(answer: (cmd: string, args: unknown) => unknown): Call[] {
       calls.push({ cmd, args });
       return answer(cmd, args);
     },
+    transformCallback: (cb: (raw: unknown) => void) => {
+      const id = next++;
+      channels.set(id, cb);
+      return id;
+    },
   };
   return calls;
 }
+
+/** Sends one plugin event down every open channel, as the core does. */
+const sendEvent = (message: unknown) => {
+  for (const cb of channels.values()) cb({ index: 0, message });
+};
 
 afterEach(async () => {
   delete (globalThis as Globals).isTauri;
@@ -85,6 +101,7 @@ function fakeSdk(over: Partial<Sdk> = {}) {
     setAnalyticsCollectionEnabled: (_a, on) => {
       log.push(`collection ${on}`);
     },
+    onConfigUpdate: () => () => {},
     ...over,
   };
   return { sdk, log };
@@ -298,4 +315,111 @@ test("crash calls on the web send nothing", async () => {
   await setCrashKeys({ a: "b" });
   await crashLog("x");
   await recordError("Error", "m", "f@a.js:1:1");
+});
+
+/** A fake `onConfigUpdate` that keeps the observer, so a test can fire an update. */
+function liveSdk() {
+  const watch: { next?: (u: { getUpdatedKeys(): Set<string> }) => void; error?: (e: unknown) => void; off: number } = { off: 0 };
+  const { sdk, log } = fakeSdk({
+    onConfigUpdate: (_rc, observer) => {
+      watch.next = observer.next;
+      watch.error = observer.error;
+      return () => {
+        watch.off++;
+        watch.next = undefined;
+      };
+    },
+  });
+  return { sdk, log, watch };
+}
+
+test("listen on the web route calls on with the updated keys", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  watch.next?.({ getUpdatedKeys: () => new Set(["a", "b"]) });
+  assert.deepEqual(heard, [["a", "b"]]);
+});
+
+test("the stop function unsubscribes", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  const stop = await listen((keys) => heard.push(keys));
+  stop();
+  watch.next?.({ getUpdatedKeys: () => new Set(["a"]) });
+  assert.equal(watch.off, 1);
+  assert.deepEqual(heard, []);
+});
+
+test("listen with no web config resolves to a stop that does nothing, and never calls on", async () => {
+  const heard: string[][] = [];
+  const stop = await listen((keys) => heard.push(keys));
+  assert.doesNotThrow(() => stop());
+  assert.deepEqual(heard, []);
+});
+
+test("a listener error calls nothing and throws nothing", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  assert.doesNotThrow(() => watch.error?.(new Error("realtime refused")));
+  assert.deepEqual(heard, []);
+});
+
+const phone = (cmd: string) => (cmd === "plugin:firebase|mode" ? "native" : null);
+
+test("listen on the command route registers configUpdate and invokes listen", async () => {
+  const calls = setupTauri(phone);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  const names = calls.map((c) => c.cmd);
+  assert.ok(names.includes("plugin:firebase|register_listener"));
+  assert.equal((calls.find((c) => c.cmd === "plugin:firebase|register_listener")?.args as { event: string }).event, "configUpdate");
+  assert.ok(names.includes("plugin:firebase|listen"));
+  sendEvent({ keys: ["a"] });
+  assert.deepEqual(heard, [["a"]]);
+});
+
+test("the stop function removes the listener and invokes unlisten", async () => {
+  const calls = setupTauri(phone);
+  const stop = await listen(() => {});
+  stop();
+  await new Promise((r) => setTimeout(r, 0));
+  const names = calls.map((c) => c.cmd);
+  assert.ok(names.includes("plugin:firebase|remove_listener"));
+  assert.ok(names.includes("plugin:firebase|unlisten"));
+});
+
+test("calling listen twice holds one native listener", async () => {
+  const calls = setupTauri(phone);
+  const one = await listen(() => {});
+  const two = await listen(() => {});
+  const count = (cmd: string) => calls.filter((c) => c.cmd === cmd).length;
+  assert.equal(count("plugin:firebase|listen"), 1);
+  one();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(count("plugin:firebase|unlisten"), 0);
+  two();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(count("plugin:firebase|unlisten"), 1);
+});
+
+test("an event that is not a key list calls on with no keys", async () => {
+  setupTauri(phone);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  sendEvent({ keys: "a" });
+  assert.deepEqual(heard, [[]]);
+});
+
+test("on a phone whose bridge refuses, listen resolves and never throws", async () => {
+  setupTauri((cmd) => {
+    if (cmd === "plugin:firebase|mode") return "native";
+    throw new Error("gone");
+  });
+  const stop = await listen(() => assert.fail("heard nothing"));
+  assert.doesNotThrow(() => stop());
 });

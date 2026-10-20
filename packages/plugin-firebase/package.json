@@ -1,6 +1,6 @@
 {
   "name": "tauri-plugin-firebase-api",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Framework-neutral TypeScript facade for tauri-plugin-firebase, with the Firebase web SDK on the web and the Mac",
   "keywords": [
     "tauri",

@@ -146,6 +146,27 @@ async fn activate<R: Runtime>(app: tauri::AppHandle<R>) -> bool {
     false
 }
 
+/// Starts the native listener for Remote Config publishes. Each update the
+/// SDK fetched reaches the webview as the `configUpdate` event. In `"absent"`
+/// mode, and on a desktop, it does nothing.
+#[tauri::command]
+#[allow(clippy::unused_async)]
+async fn listen<R: Runtime>(app: tauri::AppHandle<R>) {
+    #[cfg(mobile)]
+    native(&app).call("listen", Value::Null).await;
+    #[cfg(not(mobile))]
+    let _ = app;
+}
+
+#[tauri::command]
+#[allow(clippy::unused_async)]
+async fn unlisten<R: Runtime>(app: tauri::AppHandle<R>) {
+    #[cfg(mobile)]
+    native(&app).call("unlisten", Value::Null).await;
+    #[cfg(not(mobile))]
+    let _ = app;
+}
+
 #[tauri::command]
 #[allow(clippy::unused_async)]
 async fn get_all<R: Runtime>(
@@ -203,6 +224,8 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
             fetch,
             activate,
             get_all,
+            listen,
+            unlisten,
             log_event,
             set_collection,
             crash::crash_set_collection,

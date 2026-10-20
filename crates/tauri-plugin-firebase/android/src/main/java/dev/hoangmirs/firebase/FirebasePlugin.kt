@@ -6,12 +6,17 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.google.firebase.remoteconfig.ConfigUpdate
+import com.google.firebase.remoteconfig.ConfigUpdateListener
+import com.google.firebase.remoteconfig.ConfigUpdateListenerRegistration
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigFetchThrottledException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 
@@ -71,6 +76,35 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
     FirebaseApp.initializeApp(activity) != null
 
   private fun config() = FirebaseRemoteConfig.getInstance()
+
+  // The one listener for Remote Config publishes. A second would hold a
+  // second connection, and fetch twice on every publish.
+  private var updates: ConfigUpdateListenerRegistration? = null
+
+  // Each publish reaches the webview as `configUpdate` once the SDK fetched it.
+  // The values are not active: the app activates them, as after `fetch`.
+  @Command
+  fun listen(invoke: Invoke) {
+    if (configured && updates == null) {
+      updates = config().addOnConfigUpdateListener(object : ConfigUpdateListener {
+        override fun onUpdate(update: ConfigUpdate) {
+          val keys = JSArray()
+          update.updatedKeys.forEach { keys.put(it) }
+          trigger("configUpdate", JSObject().put("keys", keys))
+        }
+
+        override fun onError(error: FirebaseRemoteConfigException) {}
+      })
+    }
+    invoke.resolve()
+  }
+
+  @Command
+  fun unlisten(invoke: Invoke) {
+    updates?.remove()
+    updates = null
+    invoke.resolve()
+  }
 
   @Command
   fun configure(invoke: Invoke) {

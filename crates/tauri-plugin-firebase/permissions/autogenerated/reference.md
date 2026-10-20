@@ -1,6 +1,6 @@
 ## Default Permission
 
-Read Remote Config, log Analytics events and send crash reports
+Read Remote Config and hear its publishes, log Analytics events and send crash reports
 
 #### This default permission set includes the following:
 
@@ -9,6 +9,10 @@ Read Remote Config, log Analytics events and send crash reports
 - `allow-fetch`
 - `allow-activate`
 - `allow-get-all`
+- `allow-listen`
+- `allow-unlisten`
+- `allow-register-listener`
+- `allow-remove-listener`
 - `allow-log-event`
 - `allow-set-collection`
 - `allow-crash-set-collection`
@@ -210,6 +214,32 @@ Denies the get_all command without any pre-configured scope.
 <tr>
 <td>
 
+`firebase:allow-listen`
+
+</td>
+<td>
+
+Enables the listen command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-listen`
+
+</td>
+<td>
+
+Denies the listen command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `firebase:allow-log-event`
 
 </td>
@@ -262,6 +292,58 @@ Denies the mode command without any pre-configured scope.
 <tr>
 <td>
 
+`firebase:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `firebase:allow-set-collection`
 
 </td>
@@ -307,6 +389,32 @@ Enables the set_defaults command without any pre-configured scope.
 <td>
 
 Denies the set_defaults command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-unlisten`
+
+</td>
+<td>
+
+Enables the unlisten command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-unlisten`
+
+</td>
+<td>
+
+Denies the unlisten command without any pre-configured scope.
 
 </td>
 </tr>
