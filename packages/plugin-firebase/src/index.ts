@@ -67,6 +67,14 @@ export async function fetch(): Promise<Fetched> {
   return command<Fetched>("fetch", undefined, "failed");
 }
 
+/** Calls `on` with the changed keys after each publish Firebase fetched. The
+ *  values are fetched, not active: activate them as after `fetch`. Resolves to
+ *  the function that stops listening. Never rejects. */
+export async function listen(on: (keys: string[]) => void): Promise<() => void> {
+  if ((await routeOf()) === "web") return web.listen(on);
+  return () => {};
+}
+
 export async function activate(): Promise<boolean> {
   if ((await routeOf()) === "web") return web.activate();
   return command("activate", undefined, false);

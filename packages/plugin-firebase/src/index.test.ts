@@ -6,6 +6,7 @@ import {
   fetch,
   getAll,
   init,
+  listen,
   logEvent,
   parseStack,
   recordError,
@@ -85,6 +86,7 @@ function fakeSdk(over: Partial<Sdk> = {}) {
     setAnalyticsCollectionEnabled: (_a, on) => {
       log.push(`collection ${on}`);
     },
+    onConfigUpdate: () => () => {},
     ...over,
   };
   return { sdk, log };
@@ -298,4 +300,56 @@ test("crash calls on the web send nothing", async () => {
   await setCrashKeys({ a: "b" });
   await crashLog("x");
   await recordError("Error", "m", "f@a.js:1:1");
+});
+
+/** A fake `onConfigUpdate` that keeps the observer, so a test can fire an update. */
+function liveSdk() {
+  const watch: { next?: (u: { getUpdatedKeys(): Set<string> }) => void; error?: (e: unknown) => void; off: number } = { off: 0 };
+  const { sdk, log } = fakeSdk({
+    onConfigUpdate: (_rc, observer) => {
+      watch.next = observer.next;
+      watch.error = observer.error;
+      return () => {
+        watch.off++;
+        watch.next = undefined;
+      };
+    },
+  });
+  return { sdk, log, watch };
+}
+
+test("listen on the web route calls on with the updated keys", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  watch.next?.({ getUpdatedKeys: () => new Set(["a", "b"]) });
+  assert.deepEqual(heard, [["a", "b"]]);
+});
+
+test("the stop function unsubscribes", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  const stop = await listen((keys) => heard.push(keys));
+  stop();
+  watch.next?.({ getUpdatedKeys: () => new Set(["a"]) });
+  assert.equal(watch.off, 1);
+  assert.deepEqual(heard, []);
+});
+
+test("listen with no web config resolves to a stop that does nothing, and never calls on", async () => {
+  const heard: string[][] = [];
+  const stop = await listen((keys) => heard.push(keys));
+  assert.doesNotThrow(() => stop());
+  assert.deepEqual(heard, []);
+});
+
+test("a listener error calls nothing and throws nothing", async () => {
+  const { sdk, watch } = liveSdk();
+  await init(WEB, async () => sdk);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  assert.doesNotThrow(() => watch.error?.(new Error("realtime refused")));
+  assert.deepEqual(heard, []);
 });
