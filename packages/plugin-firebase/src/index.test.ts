@@ -36,6 +36,7 @@ function setupTauri(answer: (cmd: string, args: unknown) => unknown): Call[] {
   (globalThis as Globals).__TAURI_INTERNALS__ = {
     invoke: async (cmd: string, args: unknown) => {
       calls.push({ cmd, args });
+      if (cmd === "plugin:firebase|remove_listener") channels.delete((args as { channelId: number }).channelId);
       return answer(cmd, args);
     },
     transformCallback: (cb: (raw: unknown) => void) => {
@@ -405,6 +406,45 @@ test("calling listen twice holds one native listener", async () => {
   two();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(count("plugin:firebase|unlisten"), 1);
+});
+
+/** Lets `n` rounds of queued promise callbacks run. */
+const ticks = async (n: number) => {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+};
+
+test("a listen that arrives while the last stop runs leaves one channel open", async () => {
+  for (let gap = 0; gap < 12; gap++) {
+    await resetForTests();
+    setupTauri(phone);
+    const stop = await listen(() => {});
+    const heard: string[][] = [];
+    const next = listen((keys) => heard.push(keys));
+    await ticks(gap);
+    stop();
+    await next;
+    await new Promise((r) => setTimeout(r, 0));
+    sendEvent({ keys: ["a"] });
+    assert.deepEqual(heard, [["a"]], `gap ${gap}`);
+    assert.equal(channels.size, 1, `gap ${gap}`);
+  }
+});
+
+test("a listen right after the last stop sends listen after unlisten", async () => {
+  let release = () => {};
+  const calls = setupTauri((cmd) => {
+    if (cmd === "plugin:firebase|unlisten") return new Promise<null>((r) => (release = () => r(null)));
+    return phone(cmd);
+  });
+  const stop = await listen(() => {});
+  stop();
+  const next = listen(() => {});
+  await new Promise((r) => setTimeout(r, 0));
+  const names = () => calls.map((c) => c.cmd).filter((c) => c === "plugin:firebase|listen" || c === "plugin:firebase|unlisten");
+  assert.deepEqual(names(), ["plugin:firebase|listen", "plugin:firebase|unlisten"]);
+  release();
+  await next;
+  assert.deepEqual(names(), ["plugin:firebase|listen", "plugin:firebase|unlisten", "plugin:firebase|listen"]);
 });
 
 test("an event that is not a key list calls on with no keys", async () => {

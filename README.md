@@ -578,8 +578,10 @@ const stop = await listen((keys) => {
   Mac use the web SDK's `onConfigUpdate`.
 - A phone holds one native listener for every `listen` call. The last stop
   ends it.
-- Each publish makes every listening app fetch once, and Firebase counts that
-  fetch. Holding the connection is free.
+- A publish costs one fetch for each listening copy of the app. A copy that
+  starts listening before its next scheduled fetch also fetches once, because
+  it sees the newer template when it connects. Firebase counts each fetch.
+  Holding the connection is free.
 - The project needs the Firebase Remote Config Realtime API on, and no API key
   restriction that blocks it. Without it, `on` is never called. `listen` never
   rejects, so check a publish on a real phone.

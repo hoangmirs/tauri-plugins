@@ -38,8 +38,8 @@ struct ConfigUpdate: Encodable {
 
 class FirebasePlugin: Plugin {
   private var configured = false
-  /// The one listener for Remote Config publishes. A second would hold a
-  /// second connection, and fetch twice on every publish.
+  /// The one listener for Remote Config publishes. The SDK serves every
+  /// listener from one stream, but a second would send each publish twice.
   private var updates: ConfigUpdateListenerRegistration?
 
   /// Runs when the plugin is created, before Rust asks `configure`. Tauri
@@ -83,7 +83,11 @@ class FirebasePlugin: Plugin {
     if configured && updates == nil {
       updates = RemoteConfig.remoteConfig().addOnConfigUpdateListener { [weak self] update, error in
         guard error == nil, let update else { return }
-        try? self?.trigger("configUpdate", data: ConfigUpdate(keys: Array(update.updatedKeys)))
+        // The SDK calls this on its own queue, and Tauri's listener table has
+        // no lock.
+        DispatchQueue.main.async {
+          try? self?.trigger("configUpdate", data: ConfigUpdate(keys: Array(update.updatedKeys)))
+        }
       }
     }
     invoke.resolve()
