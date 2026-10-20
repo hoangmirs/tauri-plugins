@@ -91,12 +91,20 @@ async function envOf<K extends Keys>(o: Options<K>): Promise<Env | null> {
   if (isTauri()) {
     const c = await nativeConfig();
     if (c) {
+      // Rust reads v<n>.json for its own version. Rules for another version never decrypt with this key.
+      const sameKey = c.keyVersion === o.key.version;
+      if (!sameKey) {
+        console.warn(
+          `remote-settings: the Rust config reads key version ${c.keyVersion}, but init has key version ${o.key.version}. New rules are not evaluated until the two match.`,
+        );
+      }
+      const keyed = (f: Files): Files => (sameKey ? f : { ...f, rules: null });
       return {
         native: true,
         store: nativeStore,
         platform: c.platform,
         version: c.version,
-        files: async (first) => (first ? ((await nativePrefetched()) ?? (await nativeRead())) : nativeRead()),
+        files: async (first) => keyed(first ? ((await nativePrefetched()) ?? (await nativeRead())) : await nativeRead()),
       };
     }
   }
@@ -128,6 +136,7 @@ export function init<K extends Keys>(o: Options<K>): Settings<K> {
   let stopListen: (() => void) | null = null;
   let listening = false;
   let reading: AbortController | null = null;
+  let readyOnce: Promise<void> | null = null;
   let chain: Promise<void> = Promise.resolve();
 
   const latest = () => applier?.pending() ?? applier?.applied() ?? null;
@@ -158,6 +167,7 @@ export function init<K extends Keys>(o: Options<K>): Settings<K> {
       void fb()
         ?.listen(() => {
           firebaseFetched = true;
+          void refresh();
         })
         .then(
           (stop) => {
@@ -194,7 +204,7 @@ export function init<K extends Keys>(o: Options<K>): Settings<K> {
       if (saved) await e.store.set("state", JSON.stringify(saved));
     }
     const seed = safe(() => o.legacy?.installId?.() ?? null, null);
-    id = e.native ? await nativeInstallId(seed) : await webInstallId(e.store, seed);
+    id = await (e.native ? nativeInstallId(seed) : webInstallId(e.store, seed)).catch(() => null);
     let start: Snapshot | null = null;
     if (saved) {
       const again = await evaluateStored(e, saved);
@@ -225,7 +235,8 @@ export function init<K extends Keys>(o: Options<K>): Settings<K> {
   })().catch(() => null);
 
   async function beforeApply(s: Snapshot): Promise<Snapshot> {
-    const a = fb();
+    // The snapshot that applies names its source. The one on screen may name the source before a switch.
+    const a = s.saved.from === "firebase" ? o.firebase?.adapter : undefined;
     if (!firebaseFetched || !a) return s;
     firebaseFetched = false;
     try {
@@ -323,12 +334,16 @@ export function init<K extends Keys>(o: Options<K>): Settings<K> {
       atRestAsked = atRest;
       void applier?.setAtRest(atRest).catch(() => {});
     },
-    ready: async (deadlineMs) => {
-      holdAsked = true;
-      applier?.holding();
-      await Promise.race([firstRead, new Promise((done) => setTimeout(done, deadlineMs))]);
-      await env;
-      await applier?.holdEnded().catch(() => {});
+    // Only the first call holds: a later one, from a screen that renders again, must not apply mid-task.
+    ready: (deadlineMs) => {
+      readyOnce ??= (async () => {
+        holdAsked = true;
+        applier?.holding();
+        await Promise.race([firstRead, new Promise((done) => setTimeout(done, deadlineMs))]);
+        await env;
+        await applier?.holdEnded().catch(() => {});
+      })();
+      return readyOnce;
     },
     refresh: async () => {
       await firstRead;

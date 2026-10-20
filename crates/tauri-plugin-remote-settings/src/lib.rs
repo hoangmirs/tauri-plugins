@@ -117,15 +117,18 @@ pub fn init<R: Runtime>(settings: Config) -> TauriPlugin<R> {
             config, prefetched, read, get, set, install_id
         ])
         .setup(move |app, _api| {
-            let dir = if let Some(d) = &settings.store_dir {
-                d.clone()
+            let base = if cfg!(target_os = "android") {
+                app.path().app_data_dir()
             } else {
-                let base = if cfg!(target_os = "android") {
-                    app.path().app_data_dir()
-                } else {
-                    app.path().app_local_data_dir()
-                };
-                store::dir_for(&base?, cfg!(target_os = "android"))
+                app.path().app_local_data_dir()
+            };
+            let store = match (&settings.store_dir, base) {
+                (Some(d), _) => Store::new(d.clone()),
+                (None, Ok(b)) => Store::new(store::dir_for(&b, cfg!(target_os = "android"))),
+                (None, Err(e)) => {
+                    log::warn!("remote-settings: no data folder, so nothing is kept: {e}");
+                    Store::without_folder()
+                }
             };
             let reader = std::sync::Arc::new(Reader::new(
                 read::urls(&settings.base_url, &settings.stage, settings.key_version),
@@ -137,7 +140,7 @@ pub fn init<R: Runtime>(settings: Config) -> TauriPlugin<R> {
             app.manage(Plugin {
                 config: settings.clone(),
                 reader,
-                store: Store::new(dir),
+                store,
                 prefetch: Once::new(prefetch),
             });
             Ok(())

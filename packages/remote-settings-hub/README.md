@@ -140,7 +140,9 @@ several custom domains.
 
 1. Add the new key with `version: 2` beside the old one, deploy, and call
    `POST /refresh`. The hub writes `v1.json` and `v2.json`.
-2. Release the app with key version 2.
+2. Release the app with key version 2. Change the Rust `Config::new(.., 2)`
+   and the JS `key: { version: 2, value }` in the same release. When they
+   differ, the plugin warns and evaluates no new rules.
 3. When no copy in use reads `v1.json`, remove the old key.
 
 ## The global file

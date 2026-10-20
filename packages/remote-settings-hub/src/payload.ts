@@ -16,7 +16,12 @@ export type EncryptedPayload = {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-const toBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+// One argument per byte would pass the engine's limit on a call's arguments for a large payload.
+function toBase64(bytes: Uint8Array): string {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
 const fromBase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
 /** The payload, or null when it is not one: a body with the wrong shape must never replace a good file. */

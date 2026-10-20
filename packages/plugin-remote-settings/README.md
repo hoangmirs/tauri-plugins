@@ -71,7 +71,9 @@ settings.subscribe((changed) => render(settings.values().values, changed));
 ```
 
 In a Tauri app the Rust config gives the base URL, the stage and the key
-version, and `web` is used only when the crate is not registered.
+version, and `web` is used only when the crate is not registered. The key
+version in `Config::new` and in `key` must be the same. When they differ, the
+plugin warns and evaluates no new rules, so change both in one release.
 
 ### Keys
 

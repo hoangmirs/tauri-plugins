@@ -119,3 +119,24 @@ test("a store that throws gives no install id", async () => {
   }));
   assert.equal(await webInstallId(s, null), null);
 });
+
+test("a read that hangs gives up at the timeout", async () => {
+  const fetcher = ((_u: RequestInfo | URL, init?: RequestInit) =>
+    new Promise((_done, fail) => init?.signal?.addEventListener("abort", () => fail(new Error("aborted"))))) as typeof fetch;
+  const start = Date.now();
+  const files = await readFilesWeb({ ...opts(fetcher), timeoutMs: 50 });
+  assert.deepEqual(files, { global: null, rules: null, country: null });
+  assert.ok(Date.now() - start < 1000);
+});
+
+test("an install id is made even where crypto.randomUUID is missing", async () => {
+  const c = globalThis.crypto as { randomUUID?: unknown };
+  const real = c.randomUUID;
+  Object.defineProperty(c, "randomUUID", { value: undefined, configurable: true, writable: true });
+  try {
+    const id = await webInstallId(webStore("appa", memory().storage), null);
+    assert.match(id ?? "", UUID);
+  } finally {
+    Object.defineProperty(c, "randomUUID", { value: real, configurable: true, writable: true });
+  }
+});

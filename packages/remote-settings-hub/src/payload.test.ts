@@ -39,3 +39,14 @@ test("two encryptions of one payload differ", async () => {
 test("sha256Hex gives the hex digest of the text", async () => {
   assert.equal(await sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 });
+
+test("a payload larger than the call stack's argument limit still encrypts", async () => {
+  const key = newKey();
+  const features: Record<string, unknown> = {};
+  for (let i = 0; i < 4000; i++) features[`f${i}`] = { defaultValue: "x".repeat(60) };
+  const enc = await encryptPayload({ features }, key);
+  const gb = new GrowthBook({ decryptionKey: key });
+  await gb.setPayload(enc as Parameters<GrowthBook["setPayload"]>[0]);
+  assert.equal(gb.getFeatureValue("f3999", "none"), "x".repeat(60));
+  gb.destroy();
+});

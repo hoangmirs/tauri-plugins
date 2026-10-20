@@ -5,6 +5,8 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use uuid::Uuid;
 
@@ -33,14 +35,32 @@ pub fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// Each async command runs on its own task, so two writes of one name can
+/// overlap. The lock keeps one rename from landing inside another write.
 pub struct Store {
-    dir: PathBuf,
+    dir: Option<PathBuf>,
+    lock: Mutex<()>,
 }
+
+static TEMP: AtomicU64 = AtomicU64::new(0);
 
 impl Store {
     #[must_use]
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+        Self {
+            dir: Some(dir),
+            lock: Mutex::new(()),
+        }
+    }
+
+    /// A store that keeps nothing, for when the app's data folder is unknown:
+    /// the app still starts, on its defaults.
+    #[must_use]
+    pub fn without_folder() -> Self {
+        Self {
+            dir: None,
+            lock: Mutex::new(()),
+        }
     }
 
     #[must_use]
@@ -48,7 +68,7 @@ impl Store {
         if !valid_name(name) {
             return None;
         }
-        fs::read_to_string(self.dir.join(name)).ok()
+        fs::read_to_string(self.dir.as_ref()?.join(name)).ok()
     }
 
     /// Writes through a temp file and a rename, so a crash mid-write never
@@ -59,13 +79,17 @@ impl Store {
     /// Returns an error for a refused name, or when the folder or file cannot
     /// be written.
     pub fn set(&self, name: &str, text: &str) -> std::io::Result<()> {
-        if !valid_name(name) {
+        let Some(dir) = self.dir.as_ref().filter(|_| valid_name(name)) else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "refused name",
+                "refused name, or no folder",
             ));
-        }
-        write_atomic(&self.dir.join(name), text)
+        };
+        let _held = self
+            .lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        write_atomic(&dir.join(name), text)
     }
 
     /// The first good id: the kept one, else `seed`, else a new one. None when
@@ -97,10 +121,11 @@ fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp_path = path.with_extension("tmp");
+    let n = TEMP.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = path.with_extension(format!("{}.{n}.tmp", std::process::id()));
     let mut tmp = File::create(&tmp_path)?;
     tmp.write_all(text.as_bytes())?;
-    tmp.flush()?;
+    tmp.sync_all()?;
     drop(tmp);
     fs::rename(&tmp_path, path)
 }
@@ -180,6 +205,35 @@ mod tests {
         let file = dir.path().join("a-file");
         std::fs::write(&file, "x").unwrap();
         let store = Store::new(file.join("s"));
+        assert_eq!(store.install_id(None), None);
+    }
+
+    #[test]
+    fn writers_at_the_same_time_never_mix_their_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::new(dir.path().join("s")));
+        let texts: Vec<String> = (0..8).map(|i| format!("{i}").repeat(20_000)).collect();
+        std::thread::scope(|s| {
+            for t in &texts {
+                let store = store.clone();
+                s.spawn(move || {
+                    for _ in 0..50 {
+                        store.set("state", t).unwrap();
+                    }
+                });
+            }
+        });
+        let kept = store.get("state").unwrap();
+        assert!(texts.contains(&kept));
+        let left: Vec<_> = std::fs::read_dir(dir.path().join("s")).unwrap().collect();
+        assert_eq!(left.len(), 1);
+    }
+
+    #[test]
+    fn a_store_with_no_folder_keeps_nothing_and_gives_no_id() {
+        let store = Store::without_folder();
+        assert!(store.set("state", "x").is_err());
+        assert_eq!(store.get("state"), None);
         assert_eq!(store.install_id(None), None);
     }
 

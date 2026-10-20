@@ -374,3 +374,113 @@ test("no exported function rejects when every command fails", async () => {
   delete g.window;
   delete g.__TAURI_INTERNALS__;
 });
+
+test("a second ready call never applies a value that waits", async () => {
+  const p = page();
+  p.files.rules = await rules("on");
+  const s = init(options());
+  await s.ready(1000);
+  p.files.rules = await rules("lab");
+  await s.refresh();
+  await s.ready(1000);
+  assert.equal(s.values().values.lab_x, "on");
+});
+
+test("a key version that differs between Rust and JS evaluates no new rules, and says so", async () => {
+  page();
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (m: string) => void warned.push(String(m));
+  const fresh = await rules("on");
+  tauri({
+    "plugin:remote-settings|config": { baseUrl: BASE, stage: "production", keyVersion: 2, countryHeader: "x-country", platform: "ios", version: "2.0.0" },
+    "plugin:remote-settings|prefetched": { global: "{}", rules: fresh, country: null },
+    "plugin:remote-settings|read": { global: "{}", rules: fresh, country: null },
+    "plugin:remote-settings|get": () => null,
+    "plugin:remote-settings|set": () => null,
+    "plugin:remote-settings|install_id": null,
+  });
+  try {
+    const s = init(options({ apply: "now" }));
+    await s.ready(1000);
+    assert.equal(s.values().values.lab_x, "off");
+    assert.ok(warned.some((m) => m.includes("key version")));
+  } finally {
+    console.warn = warn;
+    delete g.isTauri;
+    delete g.window;
+    delete g.__TAURI_INTERNALS__;
+  }
+});
+
+test("a switch from firebase to growthbook applies the GrowthBook values", async () => {
+  const p = page();
+  p.files.global = { source: "firebase" };
+  p.files.rules = await rules("on");
+  const { a } = adapter({ values: async () => ({ lab_x: "lab" }), fetch: async () => true });
+  const s = init(options({ firebase: { adapter: a } }));
+  await s.ready(1000);
+  assert.equal(s.values().values.lab_x, "lab");
+  p.files.global = { source: "growthbook" };
+  await s.refresh();
+  await p.setVisible(false);
+  assert.equal(s.values().values.lab_x, "on");
+  assert.equal(s.used(), "growthbook");
+});
+
+test("a realtime Remote Config update applies by the mode", async () => {
+  const p = page();
+  p.files.global = { source: "firebase" };
+  let active: Part = { lab_x: "lab" };
+  let hear: () => void = () => {};
+  const { a } = adapter({
+    values: async () => active,
+    fetch: async () => false,
+    activate: async () => {
+      active = { lab_x: "on" };
+      return true;
+    },
+    listen: async (on) => {
+      hear = on;
+      return () => {};
+    },
+  });
+  const s = init(options({ apply: "now", firebase: { adapter: a, listen: () => true } }));
+  await s.ready(1000);
+  await settle();
+  hear();
+  await settle();
+  assert.equal(s.values().values.lab_x, "on");
+});
+
+test("the web path still gives settings where crypto.randomUUID is missing", async () => {
+  const p = page();
+  p.files.global = { notice: "hello" };
+  const c = globalThis.crypto as { randomUUID?: unknown };
+  const real = c.randomUUID;
+  Object.defineProperty(c, "randomUUID", { value: undefined, configurable: true, writable: true });
+  try {
+    const s = init(options());
+    await s.ready(1000);
+    assert.equal(s.values().values.notice, "hello");
+  } finally {
+    Object.defineProperty(c, "randomUUID", { value: real, configurable: true, writable: true });
+  }
+});
+
+test("a private window that throws on storage still applies the read", async () => {
+  const p = page();
+  p.files.global = { notice: "hello" };
+  g.localStorage = {
+    getItem: () => {
+      throw new Error("denied");
+    },
+    setItem: () => {
+      throw new Error("denied");
+    },
+  };
+  const s = init(options());
+  await s.ready(1000);
+  assert.equal(s.values().values.notice, "hello");
+  assert.equal(s.installId(), null);
+});

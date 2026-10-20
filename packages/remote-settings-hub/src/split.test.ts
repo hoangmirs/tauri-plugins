@@ -73,3 +73,8 @@ test("checkApps refuses an app with no path", () => {
 test("checkApps accepts apps with distinct prefixes", () => {
   assert.deepEqual(checkApps([app("appa."), app("appb.")]), []);
 });
+
+test("checkApps refuses two apps that share a path", () => {
+  assert.notDeepEqual(checkApps([{ prefix: "appa.", paths: ["x"], keys: {} }, { prefix: "appb.", paths: ["x"], keys: {} }]), []);
+  assert.notDeepEqual(checkApps([{ prefix: "appa.", paths: ["x", "x"], keys: {} }]), []);
+});

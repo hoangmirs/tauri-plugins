@@ -17,6 +17,10 @@ export function checkApps(apps: AppEntry[]): string[] {
     if (!PREFIX.test(a.prefix)) problems.push(`prefix "${a.prefix}" must be lower-case letters, digits, _ or -, then "."`);
     if (a.paths.length === 0) problems.push(`app "${a.prefix}" has no path`);
   }
+  const paths = apps.flatMap((a) => a.paths);
+  for (const p of new Set(paths)) {
+    if (paths.filter((x) => x === p).length > 1) problems.push(`path "${p}" is used twice, so one app's file would reach another`);
+  }
   for (const a of apps) {
     for (const b of apps) {
       if (a !== b && b.prefix.startsWith(a.prefix)) problems.push(`prefix "${b.prefix}" starts with "${a.prefix}"`);

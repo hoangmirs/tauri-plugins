@@ -122,3 +122,12 @@ test("no saved values give every fallback", () => {
   assert.deepEqual(v.values, { notice: null, lab_x: "off" });
   assert.deepEqual(v.from, { notice: "default", lab_x: "default" });
 });
+
+test("a reader that throws gives the fallback, and nothing throws", () => {
+  const throwing = { lab_x: { fallback: "off", read: (_t: string): string | undefined => { throw new Error("bad reader"); } } };
+  const v = valuesOf(saved({ source: { lab_x: "on" } }), throwing, true);
+  assert.equal(v.values.lab_x, "off");
+  const g = { gate: { fallback: null, global: true, read: (_t: string): unknown => { throw new Error("bad"); } } };
+  const next = nextSaved(saved({ global: { gate: "1" } }), { global: { gate: "2" }, source: null, from: "growthbook", country: null }, g);
+  assert.equal(next.global.gate, "1");
+});

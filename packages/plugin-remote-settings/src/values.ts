@@ -22,10 +22,19 @@ export function pluginKeys(global: Part): { source: SourceName | null; apply: Mo
   return { source, apply };
 }
 
+/** An app's reader that throws reads as text that does not read. */
+function readWith<T>(key: { read: (t: string) => T | undefined } | undefined, text: string): T | undefined {
+  try {
+    return key?.read(text);
+  } catch {
+    return undefined;
+  }
+}
+
 const reads = (k: string, text: string, keys: Keys): boolean => {
   const words = PLUGIN[k];
   if (words) return words.includes(text);
-  return keys[k]?.read(text) !== undefined;
+  return readWith(keys[k], text) !== undefined;
 };
 
 /** The saved settings after a read. A part that failed keeps what was saved.
@@ -65,7 +74,7 @@ export function valuesOf<K extends Keys>(
   const sent: (keyof K)[] = [];
   for (const [name, key] of Object.entries(keys)) {
     const text = key.global ? saved?.global[name] : saved?.source[name];
-    const value = text === undefined ? undefined : key.read(text);
+    const value = text === undefined ? undefined : readWith(key, text);
     if (value === undefined || !saved) {
       values[name] = key.fallback;
       from[name] = "default";
