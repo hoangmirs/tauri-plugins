@@ -557,6 +557,34 @@ app calls `activate`. The app picks the moment a change shows, for example
 never in the middle of a game. A `fetch` inside the minimum interval (15
 minutes unless the app sets another) answers from Firebase's cache.
 
+### Live updates
+
+`listen(on)` hears each publish while the app is open, and calls `on` with
+the changed keys. Firebase has already fetched the new values, so they wait
+for `activate` like the values of a `fetch`. It resolves to the function that
+stops listening.
+
+```ts
+import { activate, listen } from "tauri-plugin-firebase-api";
+
+const stop = await listen((keys) => {
+  // The values are fetched. Activate them when the screen can change.
+  void activate();
+});
+// later: stop();
+```
+
+- iOS and Android use the SDK's config update listener, and the web and the
+  Mac use the web SDK's `onConfigUpdate`.
+- A phone holds one native listener for every `listen` call. The last stop
+  ends it.
+- Each publish makes every listening app fetch once, and Firebase counts that
+  fetch. Holding the connection is free.
+- The project needs the Firebase Remote Config Realtime API on, and no API key
+  restriction that blocks it. Without it, `on` is never called. `listen` never
+  rejects, so check a publish on a real phone.
+- An app with no Firebase file hears nothing, and its stop does nothing.
+
 ### Analytics starts off
 
 The plugin never turns Analytics on by itself. Turn collection off in each
