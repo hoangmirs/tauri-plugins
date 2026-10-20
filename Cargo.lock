@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-firebase"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde",
  "serde_json",
