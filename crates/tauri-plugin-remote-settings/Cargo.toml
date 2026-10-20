@@ -1,0 +1,31 @@
+[package]
+name = "tauri-plugin-remote-settings"
+description = "Tauri plugin that reads an app's settings files at start, keeps a small store and an install id, for GrowthBook rules evaluated on the device"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-remote-settings"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "growthbook", "feature-flags", "remote-config"]
+categories = ["gui", "web-programming::http-client"]
+links = "tauri-plugin-remote-settings"
+
+[dependencies]
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+ureq.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

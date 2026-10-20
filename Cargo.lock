@@ -2849,6 +2849,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-remote-settings"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tempfile",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
 name = "tauri-plugin-silent-mode"
 version = "0.1.0-alpha.1"
 dependencies = [
