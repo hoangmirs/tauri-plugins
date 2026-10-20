@@ -1,6 +1,6 @@
 # Remote settings: cached files, GrowthBook rules on the device, Remote Config behind a switch
 
-Date: 2026-10-20. Status: draft for the owner's approval.
+Date: 2026-10-20. Status: approved by the owner on 2026-10-20.
 
 ## Why
 
