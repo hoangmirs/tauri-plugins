@@ -1,0 +1,10 @@
+[default]
+description = "Read the app's settings files, keep the plugin's small store, and give the install id"
+permissions = [
+  "allow-config",
+  "allow-prefetched",
+  "allow-read",
+  "allow-get",
+  "allow-set",
+  "allow-install-id",
+]
