@@ -73,7 +73,7 @@ export async function fetch(): Promise<Fetched> {
 export async function listen(on: (keys: string[]) => void): Promise<() => void> {
   if ((await routeOf()) === "web") return web.listen(on);
   hearers.add(on);
-  if (hearers.size === 1) native = startNative();
+  native ??= startNative();
   await native;
   let stopped = false;
   return () => {
@@ -85,10 +85,12 @@ export async function listen(on: (keys: string[]) => void): Promise<() => void> 
 }
 
 /** Every `on` the app gave. The phone holds one native listener for all of
- *  them: each extra one would be another connection, and another fetch on
- *  every publish. */
+ *  them: each extra one would hear every publish again. */
 const hearers = new Set<(keys: string[]) => void>();
 let native: Promise<PluginListener | null> | undefined;
+/** The last stop's `unlisten`. Tauri runs each async command on its own task,
+ *  so a `listen` sent before it ends could reach the phone first. */
+let stopping: Promise<void> = Promise.resolve();
 
 const keysOf = (raw: unknown): string[] => {
   const keys = (raw as { keys?: unknown } | null)?.keys;
@@ -97,6 +99,7 @@ const keysOf = (raw: unknown): string[] => {
 
 async function startNative(): Promise<PluginListener | null> {
   try {
+    await stopping;
     const listener = await addPluginListener("firebase", "configUpdate", (raw: unknown) => {
       const keys = keysOf(raw);
       for (const on of hearers) {
@@ -116,11 +119,19 @@ async function startNative(): Promise<PluginListener | null> {
 
 async function stopNative(started: Promise<PluginListener | null> | undefined): Promise<void> {
   const listener = await started;
+  // Another stop already took this start down, and a later start may be on.
+  if (native !== started) {
+    await listener?.unregister().catch(() => {});
+    return;
+  }
   // A listen that came back while this stop waited keeps the native side on.
   if (hearers.size > 0) return;
   native = undefined;
-  await command("unlisten", undefined, undefined);
-  await listener?.unregister().catch(() => {});
+  stopping = (async () => {
+    await command("unlisten", undefined, undefined);
+    await listener?.unregister().catch(() => {});
+  })();
+  await stopping;
 }
 
 export async function activate(): Promise<boolean> {
@@ -203,5 +214,6 @@ export async function resetForTests(): Promise<void> {
   defaults = {};
   hearers.clear();
   native = undefined;
+  stopping = Promise.resolve();
   await web.resetForTests();
 }

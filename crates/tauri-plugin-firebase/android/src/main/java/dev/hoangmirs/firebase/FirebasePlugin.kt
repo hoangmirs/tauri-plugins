@@ -77,20 +77,25 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
 
   private fun config() = FirebaseRemoteConfig.getInstance()
 
-  // The one listener for Remote Config publishes. A second would hold a
-  // second connection, and fetch twice on every publish.
+  // The one listener for Remote Config publishes. The SDK serves every
+  // listener from one stream, but a second would send each publish twice.
+  // Tauri can run `listen` and `unlisten` on different threads, so both
+  // hold the plugin's lock.
   private var updates: ConfigUpdateListenerRegistration? = null
 
   // Each publish reaches the webview as `configUpdate` once the SDK fetched it.
   // The values are not active: the app activates them, as after `fetch`.
   @Command
+  @Synchronized
   fun listen(invoke: Invoke) {
     if (configured && updates == null) {
       updates = config().addOnConfigUpdateListener(object : ConfigUpdateListener {
         override fun onUpdate(update: ConfigUpdate) {
           val keys = JSArray()
           update.updatedKeys.forEach { keys.put(it) }
-          trigger("configUpdate", JSObject().put("keys", keys))
+          // The SDK calls this on its executor, and Tauri's listener table has
+          // no lock.
+          activity.runOnUiThread { trigger("configUpdate", JSObject().put("keys", keys)) }
         }
 
         override fun onError(error: FirebaseRemoteConfigException) {}
@@ -100,6 +105,7 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  @Synchronized
   fun unlisten(invoke: Invoke) {
     updates?.remove()
     updates = null
