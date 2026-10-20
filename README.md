@@ -752,6 +752,22 @@ On the web the package loads `firebase` (12.8.0 or later) with a dynamic
 `import()`. Add it to the app's dependencies only if the app runs on the web
 or a desktop.
 
+## `tauri-plugin-remote-settings`
+
+Remote settings and feature flags for a Tauri app and its web build. The app
+reads a global file and its GrowthBook rules from its own domain, through
+Cloudflare's cache, so a read runs no Worker and never calls GrowthBook. The
+JS package evaluates the rules on the device, with the same code on the web
+and in the app. New values apply by the app's mode: when the app goes out of
+sight, when the user is at rest, or at once. Firebase Remote Config can sit
+behind the global file's `source` switch.
+
+The Rust crate reads the two files at start, before the webview runs, and
+keeps a small store and an install id. It needs no Swift or Kotlin.
+
+Setup, the keys, the modes and test groups are in
+[`packages/plugin-remote-settings/README.md`](packages/plugin-remote-settings/README.md).
+
 ## `remote-settings-hub`
 
 A Cloudflare Worker library, not a Tauri plugin. It copies one GrowthBook
