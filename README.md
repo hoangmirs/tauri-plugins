@@ -413,6 +413,51 @@ const kept = await invoke<string | null>("plugin:keep|get", { key: "kept" });
 await invoke("plugin:keep|remove", { key: "kept" });
 ```
 
+## `tauri-plugin-launch`
+
+Keeps the app's own launch frame over the web view until the page says it
+has painted. iOS takes its launch screen down as soon as the app has a
+window, and Android as soon as the activity draws. The web view then needs
+about a second to start and load the page, and the player sees an empty
+window. This plugin puts the same frame back over the web view when it
+loads, and takes it away when the page calls `ready`.
+
+The frame is one image, drawn at its own size in the middle, on one colour.
+The page should paint the same image in the same place, so the hand-off does
+not show. On a desktop the plugin does nothing.
+
+A page that never calls `ready` must not leave the app covered, so the frame
+also goes after `timeoutMs`: 3000 by default, at most 10000.
+
+### Setup (Rust)
+
+```rust
+builder.plugin(tauri_plugin_launch::init())
+```
+
+Add `launch:default` to a capability. In `tauri.conf.json`:
+
+```json
+"plugins": {
+  "launch": { "image": "LaunchFrame", "background": "#fff3e2", "timeoutMs": 3000 }
+}
+```
+
+`image` is an asset catalog image on iOS, and a drawable on Android, whose
+name is the same in lower case (`launchframe.png`). Put the Android image in
+`drawable-xhdpi` at 2x and `drawable-xxhdpi` at 3x.
+
+### Use (TypeScript)
+
+Call `ready` once the page has painted its frame: two animation frames after
+the module starts is enough.
+
+```ts
+import { ready } from "tauri-plugin-launch-api";
+
+requestAnimationFrame(() => requestAnimationFrame(() => void ready()));
+```
+
 ## `tauri-plugin-purchase`
 
 Buys and restores one-time purchases through the phone's own store:

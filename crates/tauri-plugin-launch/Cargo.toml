@@ -1,0 +1,27 @@
+[package]
+name = "tauri-plugin-launch"
+description = "Tauri plugin that keeps the native launch frame over the web view until the page says it has painted"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-launch"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "ios", "android", "splash"]
+categories = ["gui"]
+links = "tauri-plugin-launch"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
