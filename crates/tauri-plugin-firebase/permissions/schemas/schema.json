@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the get_all command without any pre-configured scope."
         },
         {
+          "description": "Enables the listen command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-listen",
+          "markdownDescription": "Enables the listen command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the listen command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-listen",
+          "markdownDescription": "Denies the listen command without any pre-configured scope."
+        },
+        {
           "description": "Enables the log_event command without any pre-configured scope.",
           "type": "string",
           "const": "allow-log-event",
@@ -401,6 +413,30 @@
           "type": "string",
           "const": "deny-mode",
           "markdownDescription": "Denies the mode command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
           "description": "Enables the set_collection command without any pre-configured scope.",
@@ -427,10 +463,22 @@
           "markdownDescription": "Denies the set_defaults command without any pre-configured scope."
         },
         {
-          "description": "Read Remote Config, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`",
+          "description": "Enables the unlisten command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlisten",
+          "markdownDescription": "Enables the unlisten command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlisten command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlisten",
+          "markdownDescription": "Denies the unlisten command without any pre-configured scope."
+        },
+        {
+          "description": "Read Remote Config and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read Remote Config, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`"
+          "markdownDescription": "Read Remote Config and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`"
         }
       ]
     }

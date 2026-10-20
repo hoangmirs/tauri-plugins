@@ -10,6 +10,12 @@ const COMMANDS: &[&str] = &[
     "fetch",
     "activate",
     "get_all",
+    "listen",
+    "unlisten",
+    // `register_listener` and `remove_listener` are the core's own commands for
+    // a mobile plugin's events; listing them lets a webview hear `configUpdate`.
+    "register_listener",
+    "remove_listener",
     "log_event",
     "set_collection",
     "crash_set_collection",

@@ -32,8 +32,15 @@ class CrashRecordArgs: Decodable {
   let frames: [CrashFrameArgs]
 }
 
+struct ConfigUpdate: Encodable {
+  let keys: [String]
+}
+
 class FirebasePlugin: Plugin {
   private var configured = false
+  /// The one listener for Remote Config publishes. A second would hold a
+  /// second connection, and fetch twice on every publish.
+  private var updates: ConfigUpdateListenerRegistration?
 
   /// Runs when the plugin is created, before Rust asks `configure`. Tauri
   /// calls `load(webview:)` only once a webview exists, which is after
@@ -67,6 +74,24 @@ class FirebasePlugin: Plugin {
       if let text = value as? String { defaults[key] = text as NSString }
     }
     RemoteConfig.remoteConfig().setDefaults(defaults)
+    invoke.resolve()
+  }
+
+  /// Each publish reaches the webview as `configUpdate` once the SDK fetched
+  /// it. The values are not active: the app activates them, as after `fetch`.
+  @objc public func listen(_ invoke: Invoke) {
+    if configured && updates == nil {
+      updates = RemoteConfig.remoteConfig().addOnConfigUpdateListener { [weak self] update, error in
+        guard error == nil, let update else { return }
+        try? self?.trigger("configUpdate", data: ConfigUpdate(keys: Array(update.updatedKeys)))
+      }
+    }
+    invoke.resolve()
+  }
+
+  @objc public func unlisten(_ invoke: Invoke) {
+    updates?.remove()
+    updates = nil
     invoke.resolve()
   }
 

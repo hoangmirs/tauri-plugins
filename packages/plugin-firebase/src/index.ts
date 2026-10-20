@@ -3,7 +3,7 @@
 //! desktop app, where they use the Firebase web SDK in `./web.ts`. No function
 //! ever rejects. A failure reads as `"failed"`, `false` or the defaults.
 
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { addPluginListener, invoke, isTauri, type PluginListener } from "@tauri-apps/api/core";
 import * as web from "./web.ts";
 
 export type { Defaults, Entry, Fetched, Loader, Params, Source, WebConfig } from "./web.ts";
@@ -72,7 +72,55 @@ export async function fetch(): Promise<Fetched> {
  *  the function that stops listening. Never rejects. */
 export async function listen(on: (keys: string[]) => void): Promise<() => void> {
   if ((await routeOf()) === "web") return web.listen(on);
-  return () => {};
+  hearers.add(on);
+  if (hearers.size === 1) native = startNative();
+  await native;
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    hearers.delete(on);
+    if (hearers.size === 0) void stopNative(native);
+  };
+}
+
+/** Every `on` the app gave. The phone holds one native listener for all of
+ *  them: each extra one would be another connection, and another fetch on
+ *  every publish. */
+const hearers = new Set<(keys: string[]) => void>();
+let native: Promise<PluginListener | null> | undefined;
+
+const keysOf = (raw: unknown): string[] => {
+  const keys = (raw as { keys?: unknown } | null)?.keys;
+  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : [];
+};
+
+async function startNative(): Promise<PluginListener | null> {
+  try {
+    const listener = await addPluginListener("firebase", "configUpdate", (raw: unknown) => {
+      const keys = keysOf(raw);
+      for (const on of hearers) {
+        try {
+          on(keys);
+        } catch {
+          /* one app handler failing does not stop the others */
+        }
+      }
+    });
+    await command("listen", undefined, undefined);
+    return listener;
+  } catch {
+    return null;
+  }
+}
+
+async function stopNative(started: Promise<PluginListener | null> | undefined): Promise<void> {
+  const listener = await started;
+  // A listen that came back while this stop waited keeps the native side on.
+  if (hearers.size > 0) return;
+  native = undefined;
+  await command("unlisten", undefined, undefined);
+  await listener?.unregister().catch(() => {});
 }
 
 export async function activate(): Promise<boolean> {
@@ -153,5 +201,7 @@ export async function recordError(name: string, message: string, stack: string):
 export async function resetForTests(): Promise<void> {
   mode = undefined;
   defaults = {};
+  hearers.clear();
+  native = undefined;
   await web.resetForTests();
 }

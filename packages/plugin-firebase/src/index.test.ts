@@ -24,8 +24,13 @@ import type { Sdk } from "./web.ts";
 type Globals = Record<string, unknown>;
 type Call = { cmd: string; args: unknown };
 
+/** The channels `addPluginListener` made, by id, so a test can send an event. */
+const channels = new Map<number, (raw: unknown) => void>();
+
 function setupTauri(answer: (cmd: string, args: unknown) => unknown): Call[] {
   const calls: Call[] = [];
+  channels.clear();
+  let next = 1;
   (globalThis as Globals).isTauri = true;
   (globalThis as Globals).window = globalThis;
   (globalThis as Globals).__TAURI_INTERNALS__ = {
@@ -33,9 +38,19 @@ function setupTauri(answer: (cmd: string, args: unknown) => unknown): Call[] {
       calls.push({ cmd, args });
       return answer(cmd, args);
     },
+    transformCallback: (cb: (raw: unknown) => void) => {
+      const id = next++;
+      channels.set(id, cb);
+      return id;
+    },
   };
   return calls;
 }
+
+/** Sends one plugin event down every open channel, as the core does. */
+const sendEvent = (message: unknown) => {
+  for (const cb of channels.values()) cb({ index: 0, message });
+};
 
 afterEach(async () => {
   delete (globalThis as Globals).isTauri;
@@ -352,4 +367,59 @@ test("a listener error calls nothing and throws nothing", async () => {
   await listen((keys) => heard.push(keys));
   assert.doesNotThrow(() => watch.error?.(new Error("realtime refused")));
   assert.deepEqual(heard, []);
+});
+
+const phone = (cmd: string) => (cmd === "plugin:firebase|mode" ? "native" : null);
+
+test("listen on the command route registers configUpdate and invokes listen", async () => {
+  const calls = setupTauri(phone);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  const names = calls.map((c) => c.cmd);
+  assert.ok(names.includes("plugin:firebase|register_listener"));
+  assert.equal((calls.find((c) => c.cmd === "plugin:firebase|register_listener")?.args as { event: string }).event, "configUpdate");
+  assert.ok(names.includes("plugin:firebase|listen"));
+  sendEvent({ keys: ["a"] });
+  assert.deepEqual(heard, [["a"]]);
+});
+
+test("the stop function removes the listener and invokes unlisten", async () => {
+  const calls = setupTauri(phone);
+  const stop = await listen(() => {});
+  stop();
+  await new Promise((r) => setTimeout(r, 0));
+  const names = calls.map((c) => c.cmd);
+  assert.ok(names.includes("plugin:firebase|remove_listener"));
+  assert.ok(names.includes("plugin:firebase|unlisten"));
+});
+
+test("calling listen twice holds one native listener", async () => {
+  const calls = setupTauri(phone);
+  const one = await listen(() => {});
+  const two = await listen(() => {});
+  const count = (cmd: string) => calls.filter((c) => c.cmd === cmd).length;
+  assert.equal(count("plugin:firebase|listen"), 1);
+  one();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(count("plugin:firebase|unlisten"), 0);
+  two();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(count("plugin:firebase|unlisten"), 1);
+});
+
+test("an event that is not a key list calls on with no keys", async () => {
+  setupTauri(phone);
+  const heard: string[][] = [];
+  await listen((keys) => heard.push(keys));
+  sendEvent({ keys: "a" });
+  assert.deepEqual(heard, [[]]);
+});
+
+test("on a phone whose bridge refuses, listen resolves and never throws", async () => {
+  setupTauri((cmd) => {
+    if (cmd === "plugin:firebase|mode") return "native";
+    throw new Error("gone");
+  });
+  const stop = await listen(() => assert.fail("heard nothing"));
+  assert.doesNotThrow(() => stop());
 });
