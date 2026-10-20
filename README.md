@@ -752,6 +752,14 @@ On the web the package loads `firebase` (12.8.0 or later) with a dynamic
 `import()`. Add it to the app's dependencies only if the app runs on the web
 or a desktop.
 
+## `remote-settings-hub`
+
+A Cloudflare Worker library, not a Tauri plugin. It copies one GrowthBook
+project to R2 as one encrypted rules file for each app, for
+`tauri-plugin-remote-settings` to read through the cache. A device never
+calls it. Setup, the deploy and GrowthBook's settings are in
+[`packages/remote-settings-hub/README.md`](packages/remote-settings-hub/README.md).
+
 ## Development
 
 ```bash
