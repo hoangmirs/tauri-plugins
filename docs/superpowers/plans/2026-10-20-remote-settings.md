@@ -837,9 +837,9 @@ git commit -m "Add the Firebase adapter and the remote settings guide"
 
 This task needs the owner's GrowthBook organization and Cloudflare account. It writes no code here. It records what it finds in `packages/remote-settings-hub/README.md`.
 
-- [ ] **Step 1:** In the owner's GrowthBook organization, make one event webhook for every event to a request bin. Change a feature, an experiment, a saved group and a constant. Edit an SDK connection's projects. Write down which change sent an event.
-- [ ] **Step 2:** Read the production connection's CDN payload. Check that each feature sits under its full key, prefix included, and that a rule names a saved group with `$inGroup`.
-- [ ] **Step 3:** Use the webhook's Test button against a deployed hub. Check that `X-GrowthBook-Signature` passes `verifyEventSignature`. If it fails, compare the signature with the HMAC of the body as sent, and fix `signature.ts` with a test from the real request.
+- [ ] **Step 1:** (2026-10-22: done for features, saved groups and constants, through the deployed hub, not a request bin. Not done: an experiment, which needs a data source, and an SDK connection's projects. See "What GrowthBook sends" in the README.) In the owner's GrowthBook organization, make one event webhook for every event to a request bin. Change a feature, an experiment, a saved group and a constant. Edit an SDK connection's projects. Write down which change sent an event.
+- [x] **Step 2:** (2026-10-22, read on the staging connection, because production had no features: each feature sits under its full key. A saved group comes in as `$in`, not `$inGroup`, while saved group references are off.) Read the production connection's CDN payload. Check that each feature sits under its full key, prefix included, and that a rule names a saved group with `$inGroup`.
+- [x] **Step 3:** (2026-10-22: real events from GrowthBook pass `verifyEventSignature` and get 200.) Use the webhook's Test button against a deployed hub. Check that `X-GrowthBook-Signature` passes `verifyEventSignature`. If it fails, compare the signature with the HMAC of the body as sent, and fix `signature.ts` with a test from the real request.
 - [ ] **Step 4:** Build a test app with the plugin on an Android emulator. Read the store folder's path in the log, and check that it ends in `no_backup/remote-settings`. Measure the time from the app's start to the first `prefetched` answer, against a read from the webview.
 - [ ] **Step 5:** Commit the README changes.
 
