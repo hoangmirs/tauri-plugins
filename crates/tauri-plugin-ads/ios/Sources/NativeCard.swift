@@ -29,8 +29,23 @@ class SlotArgs: Decodable {
 /// of another, so each asset sits in its own band.
 class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   private let send: (String) -> Void
+  private let paid: (AdValue) -> Void
   private var loader: AdLoader?
+  private var loaderUnit: String?
   private var ad: NativeAd?
+  /// When the current ad loaded and when it recorded its impression. A show
+  /// after a hide gets a new ad once either is old enough.
+  private var loadedAt = Date.distantPast
+  private var impressionAt: Date?
+  /// A failed load tries again after these waits, then after the last one
+  /// each time. `tries` counts the failures in a row, and `round` drops a
+  /// wait from an older loader.
+  private let waits: [TimeInterval] = [30, 120, 600]
+  private var tries = 0
+  private var round = 0
+  /// No retry runs once the app has sent no show for this long.
+  private let idle: TimeInterval = 30 * 60
+  private var lastShow = Date.distantPast
   private var card: NativeAdView?
   private var slot: SlotArgs?
   /// Set by `hide`. An ad that arrives after the page left the slot stays
@@ -67,25 +82,64 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   private lazy var catcher = Catcher { [weak self] point, from in self?.target(point, from: from) }
   private var scrolled: NSKeyValueObservation?
 
-  init(send: @escaping (String) -> Void, webView: @escaping () -> WKWebView?) {
+  init(
+    send: @escaping (String) -> Void, webView: @escaping () -> WKWebView?,
+    paid: @escaping (AdValue) -> Void
+  ) {
     self.send = send
     self.webView = webView
+    self.paid = paid
   }
 
   func show(_ slot: SlotArgs) {
+    let returning = hidden
     self.slot = slot
     hidden = false
-    if loader == nil {
-      let choices = NativeAdViewAdOptions()
-      choices.preferredAdChoicesPosition = .topRightCorner
-      let loader = AdLoader(
-        adUnitID: slot.unitId, rootViewController: AdsPlugin.topController(),
-        adTypes: [.native], options: [choices])
-      loader.delegate = self
-      loader.load(Request())
-      self.loader = loader
+    lastShow = Date()
+    if loader == nil || loaderUnit != slot.unitId {
+      start(slot.unitId)
+    } else if returning, ad != nil, due() {
+      load()
     }
     place()
+  }
+
+  /// Whether the current ad has had its time: an impression a minute ago or
+  /// more, or a load over an hour ago.
+  private func due() -> Bool {
+    if Date().timeIntervalSince(loadedAt) >= staleAfter { return true }
+    guard let impressionAt else { return false }
+    return Date().timeIntervalSince(impressionAt) >= 60
+  }
+
+  /// A new loader for `unit`. The old ad and its card go.
+  private func start(_ unit: String) {
+    round += 1
+    tries = 0
+    drop()
+    let choices = NativeAdViewAdOptions()
+    choices.preferredAdChoicesPosition = .topRightCorner
+    let loader = AdLoader(
+      adUnitID: unit, rootViewController: AdsPlugin.topController(),
+      adTypes: [.native], options: [choices])
+    loader.delegate = self
+    self.loader = loader
+    loaderUnit = unit
+    load()
+  }
+
+  private func load() {
+    guard let loader, !loader.isLoading else { return }
+    loader.load(Request())
+  }
+
+  /// Lets the current ad go. The card stays empty until the next ad.
+  private func drop() {
+    card?.removeFromSuperview()
+    card?.nativeAd = nil
+    card = nil
+    ad = nil
+    impressionAt = nil
   }
 
   func hide() {
@@ -96,18 +150,35 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   }
 
   func adLoader(_ adLoader: AdLoader, didReceive nativeAd: NativeAd) {
+    guard adLoader === loader else { return }
+    // The old ad stays on the card until this one arrives.
+    drop()
     ad = nativeAd
+    loadedAt = Date()
+    tries = 0
     nativeAd.delegate = self
+    nativeAd.paidEventHandler = { [weak self] value in self?.paid(value) }
     build(nativeAd)
     send("native_loaded")
     place()
   }
 
   func adLoader(_ adLoader: AdLoader, didFailToReceiveAdWithError error: Error) {
-    send("native_failed")
+    guard adLoader === loader else { return }
+    // A failed refresh keeps the ad on the card. Only a card with no ad says so.
+    if ad == nil { send("native_failed") }
+    let wait = waits[min(tries, waits.count - 1)]
+    tries += 1
+    let current = round
+    DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+      guard let self, self.round == current else { return }
+      guard Date().timeIntervalSince(self.lastShow) < self.idle else { return }
+      self.load()
+    }
   }
 
   func nativeAdDidRecordImpression(_ nativeAd: NativeAd) {
+    if nativeAd === ad { impressionAt = Date() }
     send("native_shown")
   }
 

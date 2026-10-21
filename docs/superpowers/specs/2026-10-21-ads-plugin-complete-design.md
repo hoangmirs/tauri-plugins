@@ -79,8 +79,9 @@ The app shows a row for the form only when the answer is `"required"`.
 Change:
 
 1. After a native load fails, load again after 30 s, 2 min, then every
-   10 min. Send `native_failed` after each failure and `native_loaded` after a
-   success. Stop when the app sends no show for 30 min.
+   10 min. Stop when the app sends no show for 30 min. Send `native_loaded`
+   after a success. Send `native_failed` only when the card has no ad: a
+   failed refresh keeps the current ad, so the slot keeps its place.
 2. When the consent request fails, answer `"obtained"` if `canRequestAds` is
    true. Otherwise answer `"failed"`.
 
