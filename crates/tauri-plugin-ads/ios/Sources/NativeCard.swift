@@ -45,7 +45,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   /// The visible part of the page's scroll box, for a card that cannot ride
   /// in the scroll box itself. It keeps the card off the tab bar.
   private let clip: UIView = {
-    let view = UIView()
+    let view = PassThrough()
     view.clipsToBounds = true
     view.backgroundColor = .clear
     return view
@@ -55,7 +55,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
   /// Without it the card slid over a top bar the page pins inside the box:
   /// WebKit draws that bar in the box too, under any view added there.
   private let ride: UIView = {
-    let view = UIView()
+    let view = PassThrough()
     view.clipsToBounds = true
     view.backgroundColor = .clear
     return view
@@ -251,5 +251,15 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     let font = UIFont.systemFont(ofSize: size, weight: weight)
     guard let desc = font.fontDescriptor.withDesign(.rounded) else { return font }
     return UIFont(descriptor: desc, size: size)
+  }
+}
+
+/// A clip over the page that takes no touch itself. Only the card inside it
+/// does: a plain view the size of the visible page took every tap meant for
+/// the page under it.
+private final class PassThrough: UIView {
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    return hit === self ? nil : hit
   }
 }
