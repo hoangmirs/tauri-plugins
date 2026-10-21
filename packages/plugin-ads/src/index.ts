@@ -32,6 +32,15 @@ export type Slot = {
 
 export type NativeEvent = "native_loaded" | "native_failed" | "native_shown" | "native_tapped";
 
+/** What Google says one ad earned. `micros` is the value in millionths of
+ * `currency`. */
+export type Paid = {
+  format: "native" | "rewarded";
+  micros: number;
+  currency: string;
+  precision: "unknown" | "estimated" | "publisher" | "precise";
+};
+
 /** The command's answer, or `fallback` outside Tauri or when the call fails.
  * No call ever rejects. */
 async function ask<T>(cmd: string, args: Record<string, unknown> | undefined, fallback: T): Promise<T> {
@@ -57,6 +66,29 @@ export const loadRewarded = (unitId: string): Promise<"ready" | "failed"> =>
 
 export const showRewarded = (): Promise<"earned" | "closed" | "failed"> =>
   ask<"earned" | "closed" | "failed">("show_rewarded", undefined, "failed");
+
+/** Whether the app must offer Google's privacy options form, for a user who
+ * wants to change a past consent answer. Ask after `consent`. */
+export const privacyOptions = (): Promise<"required" | "not_required"> =>
+  ask<"required" | "not_required">("privacy_options", undefined, "not_required");
+
+export const showPrivacyOptions = (): Promise<"shown" | "failed"> =>
+  ask<"shown" | "failed">("show_privacy_options", undefined, "failed");
+
+/** Mutes the sound of every ad, for an app whose own sound is off. */
+export const setMuted = (muted: boolean): Promise<void> => ask("set_muted", { muted }, undefined);
+
+/** Calls `fn` each time an ad earns money, as Google reports it. Resolves to
+ * a function that stops listening. Outside Tauri it never calls `fn`. */
+export async function onPaid(fn: (p: Paid) => void): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  try {
+    const listener = await addPluginListener<Paid>("ads", "paid", fn);
+    return () => void listener.unregister();
+  } catch {
+    return () => {};
+  }
+}
 
 /** Calls `fn` for each native ad event. Resolves to a function that stops
  * listening. Outside Tauri it never calls `fn`. */

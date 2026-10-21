@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the load_rewarded command without any pre-configured scope."
         },
         {
+          "description": "Enables the privacy_options command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-privacy-options",
+          "markdownDescription": "Enables the privacy_options command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the privacy_options command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-privacy-options",
+          "markdownDescription": "Denies the privacy_options command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -367,6 +379,18 @@
           "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_muted command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-muted",
+          "markdownDescription": "Enables the set_muted command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_muted command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-muted",
+          "markdownDescription": "Denies the set_muted command without any pre-configured scope."
+        },
+        {
           "description": "Enables the show_native command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-native",
@@ -377,6 +401,18 @@
           "type": "string",
           "const": "deny-show-native",
           "markdownDescription": "Denies the show_native command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the show_privacy_options command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-show-privacy-options",
+          "markdownDescription": "Enables the show_privacy_options command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the show_privacy_options command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-show-privacy-options",
+          "markdownDescription": "Denies the show_privacy_options command without any pre-configured scope."
         },
         {
           "description": "Enables the show_rewarded command without any pre-configured scope.",
@@ -391,10 +427,10 @@
           "markdownDescription": "Denies the show_rewarded command without any pre-configured scope."
         },
         {
-          "description": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`",
+          "description": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`\n- `allow-privacy-options`\n- `allow-show-privacy-options`\n- `allow-set-muted`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`"
+          "markdownDescription": "Show native and rewarded ads, and ask for consent where the law needs it\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-init`\n- `allow-consent`\n- `allow-show-native`\n- `allow-hide-native`\n- `allow-load-rewarded`\n- `allow-show-rewarded`\n- `allow-privacy-options`\n- `allow-show-privacy-options`\n- `allow-set-muted`"
         }
       ]
     }

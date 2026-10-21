@@ -1,4 +1,4 @@
-//! The six commands. Each one asks the native side, and answers its failure
+//! The nine commands. Each one asks the native side, and answers its failure
 //! value when there is no native side or the native side fails.
 
 use serde_json::Value;
@@ -95,6 +95,29 @@ pub(crate) async fn load_rewarded<R: Runtime>(app: tauri::AppHandle<R>, unit_id:
 pub(crate) async fn show_rewarded<R: Runtime>(app: tauri::AppHandle<R>) -> String {
     let answer = call(&app, "showRewarded", Value::Null).await;
     result_of(answer.as_ref(), &["earned", "closed", "failed"], "failed")
+}
+
+/// Whether the app must offer Google's privacy options form. A desktop asks
+/// for no consent, so it never must.
+#[tauri::command]
+pub(crate) async fn privacy_options<R: Runtime>(app: tauri::AppHandle<R>) -> String {
+    let answer = call(&app, "privacyOptions", Value::Null).await;
+    result_of(
+        answer.as_ref(),
+        &["required", "not_required"],
+        "not_required",
+    )
+}
+
+#[tauri::command]
+pub(crate) async fn show_privacy_options<R: Runtime>(app: tauri::AppHandle<R>) -> String {
+    let answer = call(&app, "showPrivacyOptions", Value::Null).await;
+    result_of(answer.as_ref(), &["shown", "failed"], "failed")
+}
+
+#[tauri::command]
+pub(crate) async fn set_muted<R: Runtime>(app: tauri::AppHandle<R>, muted: bool) {
+    call(&app, "setMuted", serde_json::json!({ "muted": muted })).await;
 }
 
 #[cfg(test)]

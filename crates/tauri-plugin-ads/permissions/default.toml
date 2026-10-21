@@ -9,4 +9,7 @@ permissions = [
   "allow-hide-native",
   "allow-load-rewarded",
   "allow-show-rewarded",
+  "allow-privacy-options",
+  "allow-show-privacy-options",
+  "allow-set-muted",
 ]
