@@ -61,6 +61,10 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     return view
   }()
   private var riding: UIScrollView?
+  /// Over the web view. WebKit's own hit test never returns a view it did not
+  /// make, so a tap on the card reached the page and never the ad. This view
+  /// hands a touch on the card's visible part to the card.
+  private lazy var catcher = Catcher { [weak self] point, from in self?.target(point, from: from) }
   private var scrolled: NSKeyValueObservation?
 
   init(send: @escaping (String) -> Void, webView: @escaping () -> WKWebView?) {
@@ -189,6 +193,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
       clip.isHidden = hidden
     }
     card.isHidden = hidden
+    hold(over: web)
 
     let side: CGFloat = 120
     let pad = max(8, (h - side) / 2)
@@ -212,6 +217,24 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     let y = scroller.contentOffset.y + top - shown
     ride.frame = CGRect(x: 0, y: y, width: scroller.bounds.width, height: max(0, bottom - top))
     card.frame = CGRect(x: slot.x, y: slot.y - y, width: slot.w, height: slot.h)
+  }
+
+  private func hold(over web: WKWebView) {
+    guard let host = web.superview else { return }
+    if catcher.superview !== host || host.subviews.last !== catcher {
+      host.addSubview(catcher)
+    }
+    catcher.frame = web.frame
+  }
+
+  /// The card's view under `point`, when the point is on the card's visible
+  /// part. The card stays where it is, so a drag that starts on it still
+  /// reaches the scroll box around it.
+  private func target(_ point: CGPoint, from view: UIView) -> UIView? {
+    guard !hidden, let card, !card.isHidden, card.window != nil else { return nil }
+    let box = riding != nil ? ride : clip
+    guard !box.isHidden, box.bounds.contains(view.convert(point, to: box)) else { return nil }
+    return card.hitTest(view.convert(point, to: card), with: nil)
   }
 
   /// Used only before the plugin hears of its web view.
@@ -261,5 +284,23 @@ private final class PassThrough: UIView {
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     let hit = super.hitTest(point, with: event)
     return hit === self ? nil : hit
+  }
+}
+
+/// Over the web view, as large as it. It takes no touch of its own and hands
+/// a touch on the card to the card, wherever the card sits.
+private final class Catcher: UIView {
+  private let find: (CGPoint, UIView) -> UIView?
+
+  init(find: @escaping (CGPoint, UIView) -> UIView?) {
+    self.find = find
+    super.init(frame: .zero)
+    backgroundColor = .clear
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    find(point, self)
   }
 }
