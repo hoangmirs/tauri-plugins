@@ -12,7 +12,8 @@ class SlotArgs: Decodable {
   let w: Double
   let h: Double
   let scrollHeight: Double
-  /// Android's clip. The card here rides in the scroll box, under the tab bar.
+  /// The visible part of the scroll box on screen. A bar the page pins inside
+  /// the box, such as a top bar, lies outside it.
   let clipTop: Double?
   let clipBottom: Double?
   /// The words on the ad label, in the player's language.
@@ -49,6 +50,18 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     view.backgroundColor = .clear
     return view
   }()
+  /// The same clip for a card that rides in the scroll box. It moves with each
+  /// scroll, so the card scrolls with the page and is still cut at the clip.
+  /// Without it the card slid over a top bar the page pins inside the box:
+  /// WebKit draws that bar in the box too, under any view added there.
+  private let ride: UIView = {
+    let view = UIView()
+    view.clipsToBounds = true
+    view.backgroundColor = .clear
+    return view
+  }()
+  private var riding: UIScrollView?
+  private var scrolled: NSKeyValueObservation?
 
   init(send: @escaping (String) -> Void, webView: @escaping () -> WKWebView?) {
     self.send = send
@@ -75,6 +88,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     hidden = true
     card?.isHidden = true
     clip.isHidden = true
+    ride.isHidden = true
   }
 
   func adLoader(_ adLoader: AdLoader, didReceive nativeAd: NativeAd) {
@@ -153,10 +167,19 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     // A box that does not overflow has no scroll view of its own. The card
     // then sits over the page, clipped to the box's visible part.
     if let scroller = Self.scroller(in: web.scrollView, height: CGFloat(slot.scrollHeight), skip: web.scrollView) {
-      if card.superview !== scroller { scroller.addSubview(card) }
-      card.frame = CGRect(x: slot.x, y: slot.y, width: w, height: h)
+      if ride.superview !== scroller { scroller.addSubview(ride) }
+      if card.superview !== ride { ride.addSubview(card) }
+      if riding !== scroller {
+        riding = scroller
+        scrolled = scroller.observe(\.contentOffset) { [weak self] _, _ in self?.follow() }
+      }
+      follow()
       clip.isHidden = true
+      ride.isHidden = hidden
     } else {
+      scrolled = nil
+      riding = nil
+      ride.isHidden = true
       let top = CGFloat(slot.clipTop ?? 0)
       let bottom = CGFloat(slot.clipBottom ?? Double(web.bounds.height))
       if clip.superview !== web { web.addSubview(clip) }
@@ -177,6 +200,18 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     line.frame = CGRect(x: tx, y: pad + 56, width: tw, height: 20)
     action.sizeToFit()
     action.frame = CGRect(x: tx, y: h - pad - 40, width: max(action.bounds.width + 28, 96), height: 40)
+  }
+
+  /// Moves the riding clip to the part of the scroll box on screen, and the
+  /// card inside it to its place in the box's content.
+  private func follow() {
+    guard let slot, let card, let scroller = riding, let web = webView() ?? Self.findWebView() else { return }
+    let shown = scroller.convert(CGPoint(x: 0, y: scroller.contentOffset.y), to: web).y
+    let top = CGFloat(slot.clipTop ?? Double(shown))
+    let bottom = CGFloat(slot.clipBottom ?? Double(shown + scroller.bounds.height))
+    let y = scroller.contentOffset.y + top - shown
+    ride.frame = CGRect(x: 0, y: y, width: scroller.bounds.width, height: max(0, bottom - top))
+    card.frame = CGRect(x: slot.x, y: slot.y - y, width: slot.w, height: slot.h)
   }
 
   /// Used only before the plugin hears of its web view.
