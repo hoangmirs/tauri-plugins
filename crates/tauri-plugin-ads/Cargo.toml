@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-ads"
 description = "Tauri plugin that shows Google Mobile Ads native ads over a page slot, and rewarded ads, on iOS and Android"
-version.workspace = true
+version = "0.1.0-alpha.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
