@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.TextUtils
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -147,6 +148,7 @@ class NativeCard(
       .withAdListener(object : AdListener() {
         override fun onAdFailedToLoad(error: LoadAdError) {
           if (round != current) return
+          Log.i("ads", "[ads] native failed: ${error.message}")
           // A failed refresh keeps the ad on the card. Only a card with no ad says so.
           if (ad == null) send("native_failed")
           val wait = waits[minOf(tries, waits.size - 1)]
@@ -172,6 +174,7 @@ class NativeCard(
   private fun load() {
     val loader = loader ?: return
     if (loader.isLoading) return
+    Log.i("ads", "[ads] native load")
     loader.loadAd(AdRequest.Builder().build())
   }
 

@@ -130,6 +130,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
 
   private func load() {
     guard let loader, !loader.isLoading else { return }
+    NSLog("[ads] native load")
     loader.load(Request())
   }
 
@@ -165,6 +166,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
 
   func adLoader(_ adLoader: AdLoader, didFailToReceiveAdWithError error: Error) {
     guard adLoader === loader else { return }
+    NSLog("[ads] native failed: %@", error.localizedDescription)
     // A failed refresh keeps the ad on the card. Only a card with no ad says so.
     if ad == nil { send("native_failed") }
     let wait = waits[min(tries, waits.count - 1)]
