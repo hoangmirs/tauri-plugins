@@ -116,6 +116,16 @@ test("a change in one app's features rewrites only that app's files", async () =
   assert.deepEqual(report.written, ["a/production/v1.json"]);
 });
 
+test("a new dateUpdated from another app's change rewrites only that app's files", async () => {
+  const { env, hub } = setup();
+  payloads.set("sdk-prod", { dateUpdated: "2026-10-22T00:00:00.000Z", features: { "appa.x": { defaultValue: "p" }, "appb.x": { defaultValue: "pb" } } });
+  await hub.refresh(env);
+  payloads.set("sdk-prod", { dateUpdated: "2026-10-22T00:05:00.000Z", features: { "appa.x": { defaultValue: "p2" }, "appb.x": { defaultValue: "pb" } } });
+  const report = await hub.refresh(env);
+  assert.deepEqual(report.written, ["a/production/v1.json"]);
+  assert.ok(report.same.includes("b/production/v1.json"));
+});
+
 test("an app with two paths gets the same rules at both", async () => {
   const { bucket, env } = setup();
   const hub = createHub({ ...config, apps: [{ ...appA, paths: ["a", ""] }] }, { fetch: fakeFetch, sleep: async () => {} });

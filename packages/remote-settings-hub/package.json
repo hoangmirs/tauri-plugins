@@ -1,6 +1,6 @@
 {
   "name": "remote-settings-hub",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Cloudflare Worker library that copies one GrowthBook project's payloads to R2, one encrypted rules file per app",
   "keywords": [
     "growthbook",
