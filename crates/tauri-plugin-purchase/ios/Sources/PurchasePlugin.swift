@@ -8,6 +8,11 @@ struct IdsArgs: Decodable {
 
 struct BuyArgs: Decodable {
   let id: String
+  let consumable: Bool?
+}
+
+struct FinishArgs: Decodable {
+  let tx: String
 }
 
 struct Price: Encodable {
@@ -22,6 +27,22 @@ struct Prices: Encodable {
 struct Bought: Encodable {
   let state: String
   let proof: String?
+  let tx: String?
+
+  init(state: String, proof: String? = nil, tx: String? = nil) {
+    self.state = state
+    self.proof = proof
+    self.tx = tx
+  }
+}
+
+struct Open: Encodable {
+  let id: String
+  let tx: String
+}
+
+struct Unfinished: Encodable {
+  let open: [Open]
 }
 
 struct Held: Encodable {
@@ -39,10 +60,16 @@ class PurchasePlugin: Plugin {
   // A purchase can complete outside the purchase sheet: one a parent approves
   // later, or one cut off when the app closed. StoreKit delivers those here,
   // and keeps delivering them on each launch until they are finished.
+  // A consumable is not finished here: the app claims it into its wallet
+  // first, and finishing it before then would lose what the player paid for.
   public override func load(webview: WKWebView) {
-    updates = Task.detached {
+    updates = Task.detached { [weak self] in
       for await result in Transaction.updates {
-        if case .verified(let transaction) = result {
+        guard case .verified(let transaction) = result else { continue }
+        if transaction.productType == .consumable {
+          self?.trigger(
+            "arrived", data: ["id": transaction.productID, "tx": String(transaction.id)])
+        } else {
           await transaction.finish()
         }
       }
@@ -80,21 +107,62 @@ class PurchasePlugin: Plugin {
           // An unverified transaction failed StoreKit's own signature check,
           // so it is reported as failed and never finished.
           guard case .verified(let transaction) = result else {
-            invoke.resolve(Bought(state: "failed", proof: nil))
+            invoke.resolve(Bought(state: "failed"))
+            return
+          }
+          if args.consumable == true || transaction.productType == .consumable {
+            invoke.resolve(
+              Bought(
+                state: "bought", proof: result.jwsRepresentation, tx: String(transaction.id)))
             return
           }
           await transaction.finish()
           invoke.resolve(Bought(state: "bought", proof: result.jwsRepresentation))
         case .userCancelled:
-          invoke.resolve(Bought(state: "cancelled", proof: nil))
+          invoke.resolve(Bought(state: "cancelled"))
         case .pending:
-          invoke.resolve(Bought(state: "pending", proof: nil))
+          invoke.resolve(Bought(state: "pending"))
         @unknown default:
-          invoke.resolve(Bought(state: "failed", proof: nil))
+          invoke.resolve(Bought(state: "failed"))
         }
       } catch {
-        invoke.resolve(Bought(state: "failed", proof: nil))
+        invoke.resolve(Bought(state: "failed"))
       }
+    }
+  }
+
+  // A transaction that is already finished, or that StoreKit does not know,
+  // answers {} too: finishing twice must not fail a claim that went through.
+  @objc public func finish(_ invoke: Invoke) {
+    guard let args = try? invoke.parseArgs(FinishArgs.self), let id = UInt64(args.tx) else {
+      invoke.reject("finish needs a tx")
+      return
+    }
+    Task {
+      for await result in Transaction.unfinished {
+        if case .verified(let transaction) = result, transaction.id == id {
+          await transaction.finish()
+          break
+        }
+      }
+      invoke.resolve([:])
+    }
+  }
+
+  @objc public func unfinished(_ invoke: Invoke) {
+    guard let args = try? invoke.parseArgs(IdsArgs.self) else {
+      invoke.reject("unfinished needs ids")
+      return
+    }
+    Task {
+      let ids = Set(args.ids)
+      var open: [Open] = []
+      for await result in Transaction.unfinished {
+        guard case .verified(let transaction) = result, ids.contains(transaction.productID)
+        else { continue }
+        open.append(Open(id: transaction.productID, tx: String(transaction.id)))
+      }
+      invoke.resolve(Unfinished(open: open))
     }
   }
 

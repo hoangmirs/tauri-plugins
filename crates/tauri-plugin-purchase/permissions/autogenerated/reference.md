@@ -1,13 +1,17 @@
 ## Default Permission
 
-Read prices, buy, and read and restore what this store account owns
+Read prices, buy, finish consumables, and read and restore what this store account owns
 
 #### This default permission set includes the following:
 
+- `allow-register-listener`
+- `allow-remove-listener`
 - `allow-products`
 - `allow-buy`
 - `allow-owned`
 - `allow-restore`
+- `allow-finish`
+- `allow-unfinished`
 
 ## Permission Table
 
@@ -40,6 +44,32 @@ Enables the buy command without any pre-configured scope.
 <td>
 
 Denies the buy command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:allow-finish`
+
+</td>
+<td>
+
+Enables the finish command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:deny-finish`
+
+</td>
+<td>
+
+Denies the finish command without any pre-configured scope.
 
 </td>
 </tr>
@@ -99,6 +129,58 @@ Denies the products command without any pre-configured scope.
 <tr>
 <td>
 
+`purchase:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `purchase:allow-restore`
 
 </td>
@@ -118,6 +200,32 @@ Enables the restore command without any pre-configured scope.
 <td>
 
 Denies the restore command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:allow-unfinished`
+
+</td>
+<td>
+
+Enables the unfinished command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`purchase:deny-unfinished`
+
+</td>
+<td>
+
+Denies the unfinished command without any pre-configured scope.
 
 </td>
 </tr>

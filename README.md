@@ -452,7 +452,7 @@ await invoke("plugin:keep|remove", { key: "kept" });
 
 ## `tauri-plugin-purchase`
 
-Buys and restores one-time purchases through the phone's own store:
+Buys and restores one-time purchases, and sells consumables, through the phone's own store:
 StoreKit 2 on iOS 15 and later, and the Play Billing Library 9 on Android.
 On a desktop every command answers an error, and the TypeScript side reads
 that as a store it cannot ask.
@@ -470,12 +470,14 @@ store each time.
 
 ### What the plugin does on its own
 
-- **iOS** finishes each verified transaction. It also listens for
-  transactions that complete outside the purchase sheet, such as one a parent
-  approves later, and finishes those.
-- **Android** acknowledges each purchase it sees, from the purchase sheet,
-  from `owned` and from `restore`. Play refunds a purchase with no
-  acknowledgement after three days.
+- **iOS** finishes each verified non-consumable transaction. It also listens
+  for transactions that complete outside the purchase sheet, such as one a
+  parent approves later, and finishes those.
+- **Android** acknowledges each non-consumable purchase it sees, from the
+  purchase sheet, from `owned` and from `restore`. Play refunds a purchase
+  with no acknowledgement after three days.
+- A **consumable** is never finished by the plugin. It stays open until the
+  app calls `finish`, so the app can claim it first (see below).
 - Neither side treats a refunded or revoked purchase as owned.
 - Neither side answers an error as "owns nothing". `owned` and `restore`
   answer null when the store cannot be asked.
@@ -491,8 +493,8 @@ app.handle().plugin(tauri_plugin_purchase::init())?;
 ```
 
 Add `purchase:default` to a capability for the phones. Make each product a
-non-consumable (App Store) or a one-time product (Google Play) with the same
-id in both stores.
+non-consumable or consumable (App Store) or a one-time product (Google Play)
+with the same id in both stores.
 
 ### Use (TypeScript)
 
@@ -505,10 +507,42 @@ const held = await owned(["app.pro"]);      // [{ id, proof }], or null when the
 const back = await restore(["app.pro"]);    // the same, after the store syncs
 ```
 
-None of the four ever rejects. When `owned` or `restore` answers null, keep
+None of these ever rejects. When `owned` or `restore` answers null, keep
 the last answer: reading null as "owns nothing" locks what a player paid for
 each time the store has a bad moment. Call `restore` only from a button: on
 iOS it can ask the player to sign in.
+
+### Consumables
+
+A consumable, such as a pack of stars, can be bought again and again. The
+plugin leaves it open until the app has put it in its wallet:
+
+```ts
+import { buy, finish, onArrived, unfinished } from "tauri-plugin-purchase-api";
+
+const out = await buy("app.stars300", { consumable: true });
+// { state: "bought", proof, tx } | { state: "cancelled" | "pending" | "failed" }
+// tx: the transaction id on iOS, the purchase token on Android
+if (out.state === "bought") {
+  await claim(out.proof);   // the app's own step: a server checks the proof and credits the wallet
+  await finish(out.tx);     // true when the store took it
+}
+
+const open = await unfinished(["app.stars300"]); // [{ id, tx }], or null when the store cannot be asked
+const stop = await onArrived(({ id, tx }) => { /* claim, then finish */ });
+```
+
+- `finish` is `transaction.finish()` on iOS and `consumeAsync` on Android.
+  Finishing a purchase that is already finished answers true.
+- Call `unfinished` at launch, and claim and finish each item. A purchase
+  that was bought and never finished, because the app closed or the claim
+  failed, shows up there until `finish` takes it. Claim by `tx`, so a second
+  claim of the same item adds nothing.
+- `onArrived` fires for a consumable that completes later than its `buy`: a
+  pending Android payment that went through, or an iOS purchase the app closed
+  on. A pending Android purchase is never reported as bought or open.
+- Add `purchase:default` for the events too: it includes the listener
+  permissions.
 
 Ask `owned` again each time the app comes back to the screen. A payment a
 parent approves and a refund both land while the app is away.
@@ -516,7 +550,9 @@ parent approves and a refund both land while the app is away.
 ### Testing
 
 - **iOS:** a StoreKit configuration file in Xcode runs purchases in the
-  Simulator with no App Store Connect product. TestFlight builds buy in the
+  Simulator with no App Store Connect product. To test a consumable, add one
+  to the file, buy it, kill the app before `finish`, relaunch and see it in
+  `unfinished`, then `finish` it and see it gone. TestFlight builds buy in the
   sandbox, so the server must ask the sandbox when production answers 404.
 - **Android:** purchases work only in an app installed from Google Play, for
   example from an internal test track, with a license tester account.

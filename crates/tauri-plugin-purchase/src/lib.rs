@@ -1,16 +1,26 @@
 //! `tauri-plugin-purchase`: one-time purchases through the phone's own store,
 //! `StoreKit` 2 on iOS and the Play Billing Library on Android.
 //!
-//! Four commands, each answering JSON:
+//! Seven commands, each answering JSON:
 //!
 //! - `products { ids }` → `{ products: [{ id, price }] }`, the price as the
 //!   store writes it in the player's currency
-//! - `buy { id }` → `{ state, proof? }`, where `state` is `bought`,
-//!   `cancelled`, `pending` or `failed`, and `proof` comes with `bought`
+//! - `buy { id, consumable? }` → `{ state, proof?, tx? }`, where `state` is
+//!   `bought`, `cancelled`, `pending` or `failed`, and `proof` comes with
+//!   `bought`. A consumable also answers `tx` and stays open: the store does
+//!   not finish it until the app calls `finish`
 //! - `owned { ids }` → `{ owned: [{ id, proof }] }`, what this store account
 //!   owns now. A refunded purchase is not in it
 //! - `restore { ids }` → the same as `owned`, after asking the store to bring
 //!   back past purchases
+//! - `finish { tx }` → `{}`, finishes a consumable on iOS and consumes it on
+//!   Android, once the app has claimed it
+//! - `unfinished { ids }` → `{ open: [{ id, tx }] }`, the consumables bought
+//!   and not yet finished
+//!
+//! A consumable that completes later, such as a pending Android payment or an
+//! iOS purchase cut off by a closed app, arrives as the `arrived` event with
+//! `{ id, tx }`.
 //!
 //! `proof` is what a server checks with the store: on iOS the transaction
 //! Apple signed (its JWS), on Android the Play purchase token. The plugin
@@ -58,8 +68,14 @@ async fn products<R: Runtime>(
 async fn buy<R: Runtime>(
     app: tauri::AppHandle<R>,
     id: String,
+    consumable: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    ask(&app, "buy", serde_json::json!({ "id": id })).await
+    ask(
+        &app,
+        "buy",
+        serde_json::json!({ "id": id, "consumable": consumable.unwrap_or(false) }),
+    )
+    .await
 }
 
 #[cfg(mobile)]
@@ -69,6 +85,24 @@ async fn owned<R: Runtime>(
     ids: Vec<String>,
 ) -> Result<serde_json::Value, String> {
     ask(&app, "owned", serde_json::json!({ "ids": ids })).await
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+async fn finish<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    tx: String,
+) -> Result<serde_json::Value, String> {
+    ask(&app, "finish", serde_json::json!({ "tx": tx })).await
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+async fn unfinished<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    ask(&app, "unfinished", serde_json::json!({ "ids": ids })).await
 }
 
 #[cfg(mobile)]
@@ -94,8 +128,8 @@ fn products(ids: Vec<String>) -> Result<serde_json::Value, String> {
 #[cfg(not(mobile))]
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn buy(id: String) -> Result<serde_json::Value, String> {
-    let _ = id;
+fn buy(id: String, consumable: Option<bool>) -> Result<serde_json::Value, String> {
+    let _ = (id, consumable);
     Err(NO_STORE.into())
 }
 
@@ -103,6 +137,22 @@ fn buy(id: String) -> Result<serde_json::Value, String> {
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn owned(ids: Vec<String>) -> Result<serde_json::Value, String> {
+    let _ = ids;
+    Err(NO_STORE.into())
+}
+
+#[cfg(not(mobile))]
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn finish(tx: String) -> Result<serde_json::Value, String> {
+    let _ = tx;
+    Err(NO_STORE.into())
+}
+
+#[cfg(not(mobile))]
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn unfinished(ids: Vec<String>) -> Result<serde_json::Value, String> {
     let _ = ids;
     Err(NO_STORE.into())
 }
@@ -118,14 +168,17 @@ fn restore(ids: Vec<String>) -> Result<serde_json::Value, String> {
 /// Registers the plugin: the Swift side on iOS, the Kotlin side on Android,
 /// and commands that answer an error everywhere else.
 ///
-/// Register it at launch. On iOS it then finishes purchases that complete
-/// while the app is closed, such as one a parent approved later, and on
-/// Android it acknowledges each purchase, which Play refunds after three days
-/// without one.
+/// Register it at launch. On iOS it then finishes non-consumable purchases
+/// that complete while the app is closed, such as one a parent approved later,
+/// and on Android it acknowledges each non-consumable purchase, which Play
+/// refunds after three days without one. A consumable stays open until the app
+/// calls `finish`.
 #[must_use]
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("purchase")
-        .invoke_handler(tauri::generate_handler![products, buy, owned, restore])
+        .invoke_handler(tauri::generate_handler![
+            products, buy, owned, restore, finish, unfinished
+        ])
         .setup(|_app, _api| {
             #[cfg(mobile)]
             {

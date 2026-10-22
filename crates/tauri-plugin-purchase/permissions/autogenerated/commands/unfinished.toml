@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-unfinished"
+description = "Enables the unfinished command without any pre-configured scope."
+commands.allow = ["unfinished"]
+
+[[permission]]
+identifier = "deny-unfinished"
+description = "Denies the unfinished command without any pre-configured scope."
+commands.deny = ["unfinished"]
