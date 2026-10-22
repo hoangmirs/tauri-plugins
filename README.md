@@ -377,6 +377,40 @@ import { requestReview } from "tauri-plugin-store-review-api";
 await requestReview();
 ```
 
+## `tauri-plugin-keep-awake`
+
+Keeps a phone's screen on while the app asks it to, and lets it sleep again.
+iOS sets `isIdleTimerDisabled`. Android sets `FLAG_KEEP_SCREEN_ON` on the
+app's window. On a desktop the command does nothing.
+
+A web view's screen wake lock is not enough here. Android's system web view
+has none, and inside an iOS app it is not reliable. The platform's own switch
+needs no permission and no prompt.
+
+The switch holds only while the app is on screen. Once the app goes to the
+background the phone sleeps as usual, and the switch is back in force when
+the app returns. Turn it off when the reason ends, or the screen stays on
+for as long as the app is open.
+
+### Setup (Rust)
+
+```rust
+#[cfg(mobile)]
+app.handle().plugin(tauri_plugin_keep_awake::init())?;
+```
+
+Add `keep-awake:default` to a capability for the phones.
+
+### Use (TypeScript)
+
+```ts
+import { keepAwake } from "tauri-plugin-keep-awake-api";
+
+await keepAwake(true);
+// later
+await keepAwake(false);
+```
+
 ## `tauri-plugin-keep`
 
 Keeps a few small text values on an iPhone or iPad after the app is deleted,
