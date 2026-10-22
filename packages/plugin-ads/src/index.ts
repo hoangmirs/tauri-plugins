@@ -16,8 +16,9 @@ export type Slot = {
   w: number;
   h: number;
   scrollHeight: number;
-  /** The visible part of the scroll box on screen, for example above a fixed
-   * tab bar. Android clips the card to it. */
+  /** The visible part of the scroll box on screen, for example below a top
+   * bar the page pins inside the box and above a fixed tab bar. Both phones
+   * clip the card to it. */
   clipTop?: number;
   clipBottom?: number;
   /** The words on the ad label, in the player's language. The plugin shows
