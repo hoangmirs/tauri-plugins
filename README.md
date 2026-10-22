@@ -403,8 +403,11 @@ Add `keep-awake:default` to a capability for the phones.
 
 ### Use (TypeScript)
 
+The package is `tauri-plugin-stay-awake-api`: npm refuses
+`tauri-plugin-keep-awake-api` as too close to another package's name.
+
 ```ts
-import { keepAwake } from "tauri-plugin-keep-awake-api";
+import { keepAwake } from "tauri-plugin-stay-awake-api";
 
 await keepAwake(true);
 // later

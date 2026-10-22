@@ -1,5 +1,5 @@
 {
-  "name": "tauri-plugin-keep-awake-api",
+  "name": "tauri-plugin-stay-awake-api",
   "version": "0.1.0-alpha.1",
   "description": "Framework-neutral TypeScript facade for tauri-plugin-keep-awake",
   "keywords": [
