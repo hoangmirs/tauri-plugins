@@ -496,10 +496,28 @@ answers its failure value, and nothing shows.
   own scroll view, so it scrolls with the page. Google requires a media view
   of at least 120 x 120 points, so give the box at least that height plus
   padding.
+  - **Clip.** Send `clipTop` and `clipBottom`: the part of the scroll box
+    that no bar covers. A bar the page pins inside the box, such as a top
+    bar, lies outside it. Both phones cut the card to it.
+  - **Taps.** A tap on the card opens the ad. On iOS WebKit also sends the
+    tap to the page under the card, so the box must react to no tap.
+  - **New ads.** A failed load tries again after 30 s, 2 min, then every
+    10 min, while the app still shows the card. A show after a hide gets a
+    new ad when the current one recorded an impression 60 s ago or more, or
+    loaded over an hour ago. A new `unitId` loads from the new unit.
+  - **One card.** The plugin has one card. Show one slot at a time.
 - **Rewarded ad.** `load_rewarded` gets one ad ready. `show_rewarded` answers
-  `"earned"`, `"closed"` or `"failed"`.
+  `"earned"`, `"closed"` or `"failed"`. An ad loaded over an hour ago is
+  dropped and loaded again.
 - **Consent.** `consent` runs Google's User Messaging Platform, which shows
-  its form only where the law asks for it. Call it before the first ad.
+  its form only where the law asks for it. Call it before the first ad. It
+  starts the SDK once ads may load. When the request fails, for example
+  offline, a consent from an earlier session still counts.
+- **Privacy options.** When `privacy_options` answers `"required"`, the app
+  must offer a way to `show_privacy_options`, for example a settings row.
+- **Revenue.** `onPaid` reports what Google says each ad earned. Counting it
+  is part of what the app collects, so say so in the privacy policy.
+- **Sound.** `set_muted` mutes every ad, for an app whose own sound is off.
 - **Children.** `init` takes child-directed treatment and the highest content
   rating. The Android manifest removes the advertising id permission, as
   Google Play asks of an app for children.
@@ -522,10 +540,15 @@ Add `ads:default` to a capability. The app adds its AdMob app id:
 ### Use (TypeScript)
 
 ```ts
-import { consent, init, loadRewarded, onNative, showNative, showRewarded } from "tauri-plugin-ads-api";
+import {
+  consent, init, loadRewarded, onNative, onPaid, privacyOptions, setMuted, showNative, showRewarded,
+} from "tauri-plugin-ads-api";
 
 await init({ childDirected: true, maxRating: "G" });
 await consent();
+const offerPrivacy = (await privacyOptions()) === "required"; // then a row calls showPrivacyOptions()
+await setMuted(!soundOn);
+await onPaid((p) => console.log(p)); // { format, micros, currency, precision }
 const stop = await onNative((e) => console.log(e)); // native_loaded, native_failed, native_shown, native_tapped
 await showNative(slot);
 if ((await loadRewarded(unitId)) === "ready") await showRewarded();

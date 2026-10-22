@@ -15,6 +15,9 @@ const COMMANDS: &[&str] = &[
     "hide_native",
     "load_rewarded",
     "show_rewarded",
+    "privacy_options",
+    "show_privacy_options",
+    "set_muted",
 ];
 
 /// Google ships the SDK and its consent form as prebuilt static frameworks.

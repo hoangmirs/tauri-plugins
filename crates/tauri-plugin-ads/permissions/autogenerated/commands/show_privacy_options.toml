@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-show-privacy-options"
+description = "Enables the show_privacy_options command without any pre-configured scope."
+commands.allow = ["show_privacy_options"]
+
+[[permission]]
+identifier = "deny-show-privacy-options"
+description = "Denies the show_privacy_options command without any pre-configured scope."
+commands.deny = ["show_privacy_options"]

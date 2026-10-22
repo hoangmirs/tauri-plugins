@@ -20,6 +20,9 @@ const COMMANDS: &[&str] = &[
     "hide_native",
     "load_rewarded",
     "show_rewarded",
+    "privacy_options",
+    "show_privacy_options",
+    "set_muted",
 ];
 
 /// A mock app has no capability files, so grant every command to every
@@ -99,4 +102,10 @@ fn every_command_answers_without_an_error_on_a_desktop() {
         json!("failed")
     );
     assert_eq!(call(&w, "show_rewarded", json!({})), json!("failed"));
+    assert_eq!(
+        call(&w, "privacy_options", json!({})),
+        json!("not_required")
+    );
+    assert_eq!(call(&w, "show_privacy_options", json!({})), json!("failed"));
+    assert_eq!(call(&w, "set_muted", json!({ "muted": true })), Value::Null);
 }

@@ -4,7 +4,11 @@ import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.text.TextUtils
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -16,6 +20,7 @@ import app.tauri.annotation.InvokeArg
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdLoader
 import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdValue
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.nativead.MediaView
 import com.google.android.gms.ads.nativead.NativeAd
@@ -49,9 +54,29 @@ class SlotArgs {
  * it. Google's validator asks for a media view of 120 dp or more and no asset
  * on top of another, so each asset sits in its own band.
  */
-class NativeCard(private val activity: Activity, private val send: (String) -> Unit) {
+class NativeCard(
+  private val activity: Activity,
+  private val send: (String) -> Unit,
+  private val paid: (AdValue) -> Unit,
+) {
   private var loader: AdLoader? = null
+  private var loaderUnit: String? = null
+  private var ad: NativeAd? = null
   private var card: NativeAdView? = null
+  /** When the current ad loaded and when it recorded its impression. A show
+   *  after a hide gets a new ad once either is old enough. */
+  private var loadedAt = 0L
+  private var impressionAt: Long? = null
+  /** A failed load tries again after these waits, then after the last one
+   *  each time. `tries` counts the failures in a row, and `round` drops a
+   *  wait from an older loader. */
+  private val waits = longArrayOf(30_000, 120_000, 600_000)
+  private var tries = 0
+  private var round = 0
+  /** No retry runs once the app has sent no show for this long. */
+  private val idleMs = 30 * 60 * 1000L
+  private var lastShow = 0L
+  private val main = Handler(Looper.getMainLooper())
   /** The visible part of the page's scroll box. The card sits inside it, so it
    *  never draws over the tab bar or past the screen's edge. */
   private var page: WebView? = null
@@ -68,26 +93,14 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
   private val density = activity.resources.displayMetrics.density
 
   fun show(slot: SlotArgs) {
+    val returning = hidden
     this.slot = slot
     hidden = false
-    if (loader == null) {
-      val options = NativeAdOptions.Builder()
-        .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
-        .build()
-      loader = AdLoader.Builder(activity, slot.unitId)
-        .forNativeAd { ad ->
-          build(ad)
-          send("native_loaded")
-          place()
-        }
-        .withAdListener(object : AdListener() {
-          override fun onAdFailedToLoad(error: LoadAdError) = send("native_failed")
-          override fun onAdImpression() = send("native_shown")
-          override fun onAdClicked() = send("native_tapped")
-        })
-        .withNativeAdOptions(options)
-        .build()
-        .also { it.loadAd(AdRequest.Builder().build()) }
+    lastShow = now()
+    if (loader == null || loaderUnit != slot.unitId) {
+      start(slot.unitId)
+    } else if (returning && ad != null && due()) {
+      load()
     }
     place()
   }
@@ -95,6 +108,84 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
   fun hide() {
     hidden = true
     clip.visibility = View.GONE
+  }
+
+  private fun now() = SystemClock.elapsedRealtime()
+
+  /** Whether the current ad has had its time: an impression a minute ago or
+   *  more, or a load over an hour ago. */
+  private fun due(): Boolean {
+    if (now() - loadedAt >= STALE_AFTER_MS) return true
+    val seen = impressionAt ?: return false
+    return now() - seen >= 60_000
+  }
+
+  /** A new loader for `unit`. The old ad and its card go. */
+  private fun start(unit: String) {
+    round += 1
+    tries = 0
+    drop()
+    val current = round
+    val options = NativeAdOptions.Builder()
+      .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
+      .build()
+    loader = AdLoader.Builder(activity, unit)
+      .forNativeAd { next ->
+        if (round != current) {
+          next.destroy()
+          return@forNativeAd
+        }
+        // The old ad stays on the card until this one arrives.
+        drop()
+        ad = next
+        loadedAt = now()
+        tries = 0
+        next.setOnPaidEventListener { value -> paid(value) }
+        build(next)
+        send("native_loaded")
+        place()
+      }
+      .withAdListener(object : AdListener() {
+        override fun onAdFailedToLoad(error: LoadAdError) {
+          if (round != current) return
+          Log.i("ads", "[ads] native failed: ${error.message}")
+          // A failed refresh keeps the ad on the card. Only a card with no ad says so.
+          if (ad == null) send("native_failed")
+          val wait = waits[minOf(tries, waits.size - 1)]
+          tries += 1
+          main.postDelayed({
+            if (round == current && now() - lastShow < idleMs) load()
+          }, wait)
+        }
+
+        override fun onAdImpression() {
+          impressionAt = now()
+          send("native_shown")
+        }
+
+        override fun onAdClicked() = send("native_tapped")
+      })
+      .withNativeAdOptions(options)
+      .build()
+    loaderUnit = unit
+    load()
+  }
+
+  private fun load() {
+    val loader = loader ?: return
+    if (loader.isLoading) return
+    Log.i("ads", "[ads] native load")
+    loader.loadAd(AdRequest.Builder().build())
+  }
+
+  /** Lets the current ad go. The card stays empty until the next ad. */
+  private fun drop() {
+    card?.let { (it.parent as? ViewGroup)?.removeView(it) }
+    card?.destroy()
+    card = null
+    ad?.destroy()
+    ad = null
+    impressionAt = null
   }
 
   private fun px(dp: Double) = (dp * density).toInt()
@@ -137,7 +228,11 @@ class NativeCard(private val activity: Activity, private val send: (String) -> U
     action.setPadding(px(14.0), 0, px(14.0), 0)
     card.callToActionView = action
 
-    for (view in listOf(media, label, headline, line, action)) card.addView(view)
+    // The text views move from the last card, and a view has one parent.
+    for (view in listOf(media, label, headline, line, action)) {
+      (view.parent as? ViewGroup)?.removeView(view)
+      card.addView(view)
+    }
     card.setNativeAd(ad)
     this.card = card
   }

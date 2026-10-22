@@ -32,7 +32,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::show_native,
             commands::hide_native,
             commands::load_rewarded,
-            commands::show_rewarded
+            commands::show_rewarded,
+            commands::privacy_options,
+            commands::show_privacy_options,
+            commands::set_muted
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

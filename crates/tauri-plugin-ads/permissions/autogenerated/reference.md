@@ -12,6 +12,9 @@ Show native and rewarded ads, and ask for consent where the law needs it
 - `allow-hide-native`
 - `allow-load-rewarded`
 - `allow-show-rewarded`
+- `allow-privacy-options`
+- `allow-show-privacy-options`
+- `allow-set-muted`
 
 ## Permission Table
 
@@ -129,6 +132,32 @@ Denies the load_rewarded command without any pre-configured scope.
 <tr>
 <td>
 
+`ads:allow-privacy-options`
+
+</td>
+<td>
+
+Enables the privacy_options command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:deny-privacy-options`
+
+</td>
+<td>
+
+Denies the privacy_options command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ads:allow-register-listener`
 
 </td>
@@ -181,6 +210,32 @@ Denies the remove_listener command without any pre-configured scope.
 <tr>
 <td>
 
+`ads:allow-set-muted`
+
+</td>
+<td>
+
+Enables the set_muted command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:deny-set-muted`
+
+</td>
+<td>
+
+Denies the set_muted command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ads:allow-show-native`
 
 </td>
@@ -200,6 +255,32 @@ Enables the show_native command without any pre-configured scope.
 <td>
 
 Denies the show_native command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:allow-show-privacy-options`
+
+</td>
+<td>
+
+Enables the show_privacy_options command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ads:deny-show-privacy-options`
+
+</td>
+<td>
+
+Denies the show_privacy_options command without any pre-configured scope.
 
 </td>
 </tr>

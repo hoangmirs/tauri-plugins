@@ -1,6 +1,7 @@
 package dev.hoangmirs.ads
 
 import android.app.Activity
+import android.os.SystemClock
 import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -10,6 +11,7 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdValue
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
@@ -32,19 +34,51 @@ class UnitArgs {
   var unitId: String = ""
 }
 
+@InvokeArg
+class MutedArgs {
+  var muted: Boolean = false
+}
+
 private fun result(text: String) = JSObject().put("result", text)
+
+/** Google tells apps not to show an ad loaded more than an hour ago. */
+const val STALE_AFTER_MS = 60 * 60 * 1000L
+
+/** What Google says one ad earned, as the `paid` event's data. */
+fun paidData(format: String, value: AdValue): JSObject = JSObject()
+  .put("format", format)
+  .put("micros", value.valueMicros)
+  .put("currency", value.currencyCode)
+  .put(
+    "precision",
+    when (value.precisionType) {
+      AdValue.PrecisionType.ESTIMATED -> "estimated"
+      AdValue.PrecisionType.PUBLISHER_PROVIDED -> "publisher"
+      AdValue.PrecisionType.PRECISE -> "precise"
+      else -> "unknown"
+    },
+  )
 
 @TauriPlugin
 class AdsPlugin(private val activity: Activity) : Plugin(activity) {
-  /** One rewarded ad, loaded before the player asks for it. */
+  /** One rewarded ad, loaded before the player asks for it, with its unit
+   *  and the time it loaded. */
   private var rewarded: RewardedAd? = null
+  private var rewardedUnit: String? = null
+  private var rewardedAt = 0L
+  /** Set once the SDK starts. It starts after consent, as Google asks. */
+  private var started = false
   /** The `showRewarded` call waiting for the ad to close. */
   private var showing: Invoke? = null
   private var earned = false
   /** From `init`. A child cannot give consent, so the consent form is told. */
   private var childDirected = true
   private val native by lazy {
-    NativeCard(activity) { event -> trigger("native", JSObject().put("event", event)) }
+    NativeCard(
+      activity,
+      send = { event -> trigger("native", JSObject().put("event", event)) },
+      paid = { value -> trigger("paid", paidData("native", value)) },
+    )
   }
 
   @Command
@@ -80,9 +114,14 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
       .setMaxAdContentRating(rating(args.maxRating))
       .build()
     MobileAds.setRequestConfiguration(config)
+    invoke.resolve()
+  }
+
+  private fun start() {
+    if (started) return
+    started = true
     // Google asks for the start off the main thread: it reads from disk.
     thread { MobileAds.initialize(activity) { Log.i("ads", "[ads] started") } }
-    invoke.resolve()
   }
 
   /** Google's form shows only where the law asks for it. The answer says
@@ -102,11 +141,44 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
               info.canRequestAds() -> "obtained"
               else -> "failed"
             }
+            if (answer != "failed") start()
             invoke.resolve(result(answer))
           }
         },
-        { invoke.resolve(result("failed")) },
+        {
+          // Offline, say. A consent from an earlier session still counts.
+          val ok = info.canRequestAds()
+          if (ok) start()
+          invoke.resolve(result(if (ok) "obtained" else "failed"))
+        },
       )
+    }
+  }
+
+  @Command
+  fun privacyOptions(invoke: Invoke) {
+    activity.runOnUiThread {
+      val status = UserMessagingPlatform.getConsentInformation(activity).privacyOptionsRequirementStatus
+      val required = status == ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+      invoke.resolve(result(if (required) "required" else "not_required"))
+    }
+  }
+
+  @Command
+  fun showPrivacyOptions(invoke: Invoke) {
+    activity.runOnUiThread {
+      UserMessagingPlatform.showPrivacyOptionsForm(activity) { error ->
+        invoke.resolve(result(if (error == null) "shown" else "failed"))
+      }
+    }
+  }
+
+  @Command
+  fun setMuted(invoke: Invoke) {
+    val args = invoke.parseArgs(MutedArgs::class.java)
+    activity.runOnUiThread {
+      MobileAds.setAppMuted(args.muted)
+      invoke.resolve()
     }
   }
 
@@ -114,21 +186,31 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
   fun loadRewarded(invoke: Invoke) {
     val args = invoke.parseArgs(UnitArgs::class.java)
     activity.runOnUiThread {
-      if (rewarded != null) {
-        invoke.resolve(result("ready"))
-        return@runOnUiThread
-      }
-      RewardedAd.load(activity, args.unitId, AdRequest.Builder().build(), object : RewardedAdLoadCallback() {
-        override fun onAdLoaded(ad: RewardedAd) {
-          rewarded = ad
-          invoke.resolve(result("ready"))
-        }
-
-        override fun onAdFailedToLoad(error: LoadAdError) {
-          invoke.resolve(result("failed"))
-        }
-      })
+      loadRewarded(args.unitId) { ok -> invoke.resolve(result(if (ok) "ready" else "failed")) }
     }
+  }
+
+  /** Keeps an ad that is fresh and from `unit`, and loads one otherwise. */
+  private fun loadRewarded(unit: String, done: (Boolean) -> Unit) {
+    val fresh = SystemClock.elapsedRealtime() - rewardedAt < STALE_AFTER_MS
+    if (rewarded != null && rewardedUnit == unit && fresh) {
+      done(true)
+      return
+    }
+    rewarded = null
+    RewardedAd.load(activity, unit, AdRequest.Builder().build(), object : RewardedAdLoadCallback() {
+      override fun onAdLoaded(ad: RewardedAd) {
+        ad.setOnPaidEventListener { value -> trigger("paid", paidData("rewarded", value)) }
+        rewarded = ad
+        rewardedUnit = unit
+        rewardedAt = SystemClock.elapsedRealtime()
+        done(true)
+      }
+
+      override fun onAdFailedToLoad(error: LoadAdError) {
+        done(false)
+      }
+    })
   }
 
   @Command
@@ -137,6 +219,13 @@ class AdsPlugin(private val activity: Activity) : Plugin(activity) {
       val ad = rewarded
       if (ad == null || showing != null) {
         invoke.resolve(result("failed"))
+        return@runOnUiThread
+      }
+      val unit = rewardedUnit
+      if (SystemClock.elapsedRealtime() - rewardedAt >= STALE_AFTER_MS && unit != null) {
+        rewarded = null
+        invoke.resolve(result("failed"))
+        loadRewarded(unit) {}
         return@runOnUiThread
       }
       rewarded = null
