@@ -7,7 +7,8 @@ encrypted rules file for each app, so that apps with
 - The hub is the only caller of GrowthBook's CDN. A device never calls it.
 - A device never reads through the hub. It reads static files from R2 through
   the cache, so a read runs no Worker and no R2 operation.
-- The hub writes only when an app's rules change.
+- The hub writes only when a stage's payload changes. See step 4 below for
+  what that includes.
 
 ## What it does
 
@@ -22,7 +23,9 @@ On each trigger, the hub:
    prefix. `appa.dark_mode` becomes `dark_mode`.
 3. Keeps only the saved groups that the app's features use.
 4. Compares each app's payload with the hash saved beside its file, and stops
-   for that app when they match.
+   for that app when they match. The hash also covers the payload's
+   `dateUpdated`. So an edit to one app's feature rewrites the file of every
+   app on that stage, with the same rules.
 5. Encrypts the app's payload with the app's key for that stage, in the format
    the GrowthBook SDK decrypts.
 6. Writes `<path>/<stage>/v<n>.json` with `Cache-Control: public, max-age=60`.
@@ -112,6 +115,63 @@ does not end with `.`, or an app with no path.
 
 Never target install ids in production. The rules file is public, and only a
 paid plan hashes attributes. Use the staging environment for testers.
+
+## What GrowthBook sends
+
+Measured on 2026-10-22, on Starter, with a probe feature in staging and the
+event webhook to a deployed hub. Each event that `wrangler tail` showed
+passed the signature check and got 200. Tail did not show an event for one
+`POST /api/v2/features/<id>`, and it is not known whether GrowthBook sent one.
+
+| Edit | Events |
+|---|---|
+| Create a feature | 1 |
+| Save a draft (toggle, default value or rule), not published | 1 |
+| Publish a draft | 2 |
+| `POST /api/v2/features/<id>`, which edits and publishes in one call | 2 |
+| Archive a feature | 2 |
+| Delete a feature | 1 |
+| Create a saved group | 1 |
+| Edit a saved group's values | 2 |
+| Save a constant's draft, then publish it | 1, then 2 |
+
+Not measured: an experiment, because the API refuses one without a data
+source, and an edit to an SDK connection's projects.
+
+What the events mean for the hub:
+
+- Every edit sends an event, an unpublished draft too. A draft does not change
+  the CDN payload, so the hub finds the same files.
+- Right after an event, the CDN can still serve the old payload. In one case
+  the first read got the old payload and the second read, 15 s later, got the
+  new one.
+
+What the connection's payload holds:
+
+- Each feature sits under its full key, prefix included.
+- A feature that is off in an environment is not in that connection's
+  payload.
+- A saved group comes into each rule as `{"id": {"$in": [...]}}`, with no
+  `$inGroup` and no `savedGroups`, while the connection's saved group
+  references are off (the default).
+- A constant comes in as its value. An edit to the constant changes the
+  payload of every feature that uses it, so the constant is a production
+  change when a production feature uses it.
+- A default value of `""` or `null` comes in as is. So do `$vgte`, `$vlt`,
+  `$in`, `coverage` and `hashAttribute`.
+
+### A script that writes rules
+
+- GrowthBook has one default value for all environments. A rule names its
+  environments.
+- An organization API key must send `owner` to create a feature.
+- `POST /api/v2/features/<id>` with `rules` replaces all the rules. A rule sent
+  with no `id` gets a new one, and a rollout's `seed` is its `id`. So each
+  write moves users between rollout groups. Send a fixed `id` and a fixed
+  `seed` with each rule.
+- A constant key takes no `.`, so it cannot carry an app's prefix.
+- To delete a feature or a saved group through the API, archive it first.
+  A saved group archives with `POST /api/v1/saved-groups/<id>/archive`.
 
 ## Cloudflare, for each settings domain
 
