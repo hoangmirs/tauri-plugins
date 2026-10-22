@@ -1,0 +1,3 @@
+[default]
+description = "Keep the screen on, and let it go again"
+permissions = ["allow-set"]
