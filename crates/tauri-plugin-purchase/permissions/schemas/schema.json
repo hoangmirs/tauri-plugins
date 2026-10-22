@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the buy command without any pre-configured scope."
         },
         {
+          "description": "Enables the finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-finish",
+          "markdownDescription": "Enables the finish command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-finish",
+          "markdownDescription": "Denies the finish command without any pre-configured scope."
+        },
+        {
           "description": "Enables the owned command without any pre-configured scope.",
           "type": "string",
           "const": "allow-owned",
@@ -331,6 +343,30 @@
           "markdownDescription": "Denies the products command without any pre-configured scope."
         },
         {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the restore command without any pre-configured scope.",
           "type": "string",
           "const": "allow-restore",
@@ -343,10 +379,22 @@
           "markdownDescription": "Denies the restore command without any pre-configured scope."
         },
         {
-          "description": "Read prices, buy, and read and restore what this store account owns\n#### This default permission set includes:\n\n- `allow-products`\n- `allow-buy`\n- `allow-owned`\n- `allow-restore`",
+          "description": "Enables the unfinished command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unfinished",
+          "markdownDescription": "Enables the unfinished command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unfinished command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unfinished",
+          "markdownDescription": "Denies the unfinished command without any pre-configured scope."
+        },
+        {
+          "description": "Read prices, buy, finish consumables, and read and restore what this store account owns\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-products`\n- `allow-buy`\n- `allow-owned`\n- `allow-restore`\n- `allow-finish`\n- `allow-unfinished`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read prices, buy, and read and restore what this store account owns\n#### This default permission set includes:\n\n- `allow-products`\n- `allow-buy`\n- `allow-owned`\n- `allow-restore`"
+          "markdownDescription": "Read prices, buy, finish consumables, and read and restore what this store account owns\n#### This default permission set includes:\n\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-products`\n- `allow-buy`\n- `allow-owned`\n- `allow-restore`\n- `allow-finish`\n- `allow-unfinished`"
         }
       ]
     }

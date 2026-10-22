@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-purchase"
 description = "Tauri plugin that buys and restores one-time purchases through the App Store and Google Play"
-version.workspace = true
+version = "0.1.0-alpha.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

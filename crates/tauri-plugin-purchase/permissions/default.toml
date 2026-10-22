@@ -1,3 +1,12 @@
 [default]
-description = "Read prices, buy, and read and restore what this store account owns"
-permissions = ["allow-products", "allow-buy", "allow-owned", "allow-restore"]
+description = "Read prices, buy, finish consumables, and read and restore what this store account owns"
+permissions = [
+  "allow-register-listener",
+  "allow-remove-listener",
+  "allow-products",
+  "allow-buy",
+  "allow-owned",
+  "allow-restore",
+  "allow-finish",
+  "allow-unfinished",
+]

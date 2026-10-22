@@ -15,6 +15,7 @@ import com.android.billingclient.api.BillingClient.ProductType
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
@@ -29,6 +30,12 @@ class IdsArgs {
 @InvokeArg
 class BuyArgs {
   var id: String = ""
+  var consumable: Boolean = false
+}
+
+@InvokeArg
+class FinishArgs {
+  var tx: String = ""
 }
 
 @TauriPlugin
@@ -37,6 +44,12 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   // through the call that opened it, so the open sheet's invoke waits here.
   private var buying: Invoke? = null
   private var buyingId = ""
+
+  // Ids the app buys as consumables. Such a purchase is left open for `finish`
+  // to consume, because consuming it before the app claims it loses the pack.
+  private val consumables: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+  private fun isConsumable(p: Purchase) = p.products.any { it in consumables }
 
   private val client: BillingClient = BillingClient.newBuilder(activity)
     .setListener { result, purchases -> onPurchases(result, purchases) }
@@ -77,10 +90,14 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   private fun failed(invoke: Invoke, result: BillingResult) =
     invoke.reject(result.debugMessage.ifEmpty { "Play answered ${result.responseCode}" })
 
-  private fun state(name: String, proof: String? = null) = JSObject().apply {
+  private fun state(name: String, proof: String? = null, tx: String? = null) = JSObject().apply {
     put("state", name)
     if (proof != null) put("proof", proof)
+    if (tx != null) put("tx", tx)
   }
+
+  private fun bought(p: Purchase) =
+    if (isConsumable(p)) state("bought", p.purchaseToken, p.purchaseToken) else state("bought", p.purchaseToken)
 
   @Command
   fun products(invoke: Invoke) {
@@ -105,6 +122,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun buy(invoke: Invoke) {
     val args = invoke.parseArgs(BuyArgs::class.java)
+    if (args.consumable) consumables.add(args.id) else consumables.remove(args.id)
     // Play's sheet covers the app while it is open, so a second buy means Play
     // never answered the first. Refusing it would block buying until a restart.
     buying?.let {
@@ -138,8 +156,20 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
 
   private fun onPurchases(result: BillingResult, purchases: List<Purchase>?) {
     // Purchases also arrive with no sheet open, for example a pending payment
-    // that has now gone through. Each one is acknowledged all the same.
-    purchases?.forEach { acknowledge(it) }
+    // that has now gone through. A non-consumable is acknowledged all the same.
+    // A consumable answers the open sheet when it is the one just bought, and
+    // otherwise reaches the app as `arrived`.
+    val sheetId = buyingId
+    val sheetOpen = buying != null && result.responseCode == BillingResponseCode.OK
+    purchases?.forEach { p ->
+      if (!isConsumable(p)) return@forEach acknowledge(p)
+      val answersSheet = sheetOpen && sheetId in p.products
+      if (p.purchaseState == Purchase.PurchaseState.PURCHASED && !answersSheet) {
+        p.products.filter { it in consumables }.forEach { id ->
+          trigger("arrived", JSObject().put("id", id).put("tx", p.purchaseToken))
+        }
+      }
+    }
     val invoke = buying ?: return
     val id = buyingId
     buying = null
@@ -148,7 +178,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
         val p = purchases?.firstOrNull()
         invoke.resolve(
           when (p?.purchaseState) {
-            Purchase.PurchaseState.PURCHASED -> state("bought", p.purchaseToken)
+            Purchase.PurchaseState.PURCHASED -> bought(p)
             Purchase.PurchaseState.PENDING -> state("pending")
             else -> state("failed")
           },
@@ -158,7 +188,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
       // Bought before, on this account: answer with that purchase's token.
       BillingResponseCode.ITEM_ALREADY_OWNED -> held({ invoke.resolve(state("failed")) }) { list ->
         val p = list.firstOrNull { id in it.products }
-        invoke.resolve(if (p != null) state("bought", p.purchaseToken) else state("failed"))
+        invoke.resolve(if (p != null) bought(p) else state("failed"))
       }
       else -> invoke.resolve(state("failed"))
     }
@@ -191,7 +221,7 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
       held({ failed(invoke, it) }) { list ->
         val out = JSArray()
         for (p in list) {
-          acknowledge(p)
+          if (!isConsumable(p)) acknowledge(p)
           for (id in p.products) {
             if (id in args.ids) {
               out.put(JSObject().apply {
@@ -202,6 +232,47 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
           }
         }
         invoke.resolve(JSObject().put("owned", out))
+      }
+    }
+  }
+
+  // The tx is the purchase token. A purchase that is already consumed, or that
+  // Play no longer knows, counts as finished, so a second call does not fail
+  // a claim that went through.
+  @Command
+  fun finish(invoke: Invoke) {
+    val args = invoke.parseArgs(FinishArgs::class.java)
+    ready { ok ->
+      if (ok.responseCode != BillingResponseCode.OK) return@ready failed(invoke, ok)
+      val params = ConsumeParams.newBuilder().setPurchaseToken(args.tx).build()
+      client.consumeAsync(params) { result, _ ->
+        when (result.responseCode) {
+          BillingResponseCode.OK, BillingResponseCode.ITEM_NOT_OWNED -> invoke.resolve(JSObject())
+          else -> failed(invoke, result)
+        }
+      }
+    }
+  }
+
+  @Command
+  fun unfinished(invoke: Invoke) {
+    val args = invoke.parseArgs(IdsArgs::class.java)
+    consumables.addAll(args.ids)
+    ready { ok ->
+      if (ok.responseCode != BillingResponseCode.OK) return@ready failed(invoke, ok)
+      held({ failed(invoke, it) }) { list ->
+        val out = JSArray()
+        for (p in list) {
+          for (id in p.products) {
+            if (id in args.ids) {
+              out.put(JSObject().apply {
+                put("id", id)
+                put("tx", p.purchaseToken)
+              })
+            }
+          }
+        }
+        invoke.resolve(JSObject().put("open", out))
       }
     }
   }
