@@ -7,8 +7,7 @@ encrypted rules file for each app, so that apps with
 - The hub is the only caller of GrowthBook's CDN. A device never calls it.
 - A device never reads through the hub. It reads static files from R2 through
   the cache, so a read runs no Worker and no R2 operation.
-- The hub writes only when a stage's payload changes. See step 4 below for
-  what that includes.
+- The hub writes only when an app's rules change.
 
 ## What it does
 
@@ -23,9 +22,9 @@ On each trigger, the hub:
    prefix. `appa.dark_mode` becomes `dark_mode`.
 3. Keeps only the saved groups that the app's features use.
 4. Compares each app's payload with the hash saved beside its file, and stops
-   for that app when they match. The hash also covers the payload's
-   `dateUpdated`. So an edit to one app's feature rewrites the file of every
-   app on that stage, with the same rules.
+   for that app when they match. The hash leaves out the payload's
+   `dateUpdated`, which GrowthBook moves on any edit in the project. The file
+   keeps it.
 5. Encrypts the app's payload with the app's key for that stage, in the format
    the GrowthBook SDK decrypts.
 6. Writes `<path>/<stage>/v<n>.json` with `Cache-Control: public, max-age=60`.
@@ -134,9 +133,16 @@ passed the signature check and got 200. Tail did not show an event for one
 | Create a saved group | 1 |
 | Edit a saved group's values | 2 |
 | Save a constant's draft, then publish it | 1, then 2 |
+| `POST /api/v1/features/<id>` with an inline experiment rule | 2 |
+| Edit an SDK connection's projects | 0 |
 
-Not measured: an experiment, because the API refuses one without a data
-source, and an edit to an SDK connection's projects.
+An SDK connection edit sends no event, but GrowthBook still rebuilds the
+payload. The hub sees it at the daily cron, or at once with `POST /refresh`.
+Call `POST /refresh` after such an edit.
+
+An experiment linked to a feature needs a data source: the API refuses one
+without it. An organization with no data source can still run an A/B test
+with an inline experiment rule (see below).
 
 What the events mean for the hub:
 
@@ -170,6 +176,15 @@ What the connection's payload holds:
   write moves users between rollout groups. Send a fixed `id` and a fixed
   `seed` with each rule.
 - A constant key takes no `.`, so it cannot carry an app's prefix.
+- An inline experiment rule needs no data source. Only the v1 endpoint
+  `POST /api/v1/features/<id>` writes one, with `type: "experiment"`,
+  `trackingKey`, `hashAttribute`, `values` (value and weight) and
+  `condition` (`""` for none). The SDK splits users by the weights and calls
+  its tracking callback with the `trackingKey` and the variant. The v1
+  endpoints are deprecated. The v2 write schemas list no inline experiment
+  rule. It is not tested whether a v2 call that replaces all the rules keeps
+  one.
+  Count the results with the app's own analytics.
 - To delete a feature or a saved group through the API, archive it first.
   A saved group archives with `POST /api/v1/saved-groups/<id>/archive`.
 

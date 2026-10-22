@@ -35,6 +35,9 @@ const HEADERS = { httpMetadata: { contentType: "application/json", cacheControl:
 const fileOf = (path: string, stage: string, version: number) =>
   [path, stage, `v${version}.json`].filter((s) => s !== "").join("/");
 
+/** GrowthBook moves `dateUpdated` on any edit in the project, so a hash over it would rewrite every app's file. */
+const hashedText = ({ dateUpdated: _moved, ...stable }: Payload) => JSON.stringify(stable);
+
 function same(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -86,7 +89,7 @@ export function createHub(
         const jobs: Promise<void>[] = [];
         for (const app of config.apps) {
           const part = split?.byPrefix.get(app.prefix);
-          const plain = part ? JSON.stringify(part) : "";
+          const plain = part ? hashedText(part) : "";
           for (const { secret, version } of app.keys[stage] ?? []) {
             for (const path of app.paths) {
               const file = fileOf(path, stage, version);
