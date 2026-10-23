@@ -6,7 +6,6 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import android.util.AtomicFile
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -31,6 +30,7 @@ import java.security.Signature
 import java.security.SignatureException
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
+import java.util.concurrent.Executors
 import org.json.JSONObject
 
 @InvokeArg
@@ -70,29 +70,29 @@ private const val FILE_MAX = 1 shl 20
 private val KEY_NAME = Regex("[A-Za-z0-9._-]{1,64}")
 
 /**
- * A value is one file in the app's private storage, a key a file. A device key
- * in the Android Keystore signs the values: a StrongBox key when the phone has
- * one, else a key in the trusted environment, else a software key.
+ * Keeps each value in its own file under the app's private storage and signs it
+ * with one Keystore key named `vault`. The key is the best the phone offers:
+ * StrongBox, else the trusted environment, else software.
  */
 @TauriPlugin
 class VaultPlugin(private val activity: Activity) : Plugin(activity) {
   private val directory = File(activity.filesDir, "vault")
 
-  // AtomicFile does not guard two writers of one file against each other.
-  private val fileLock = Any()
-
-  // Two calls at once would each find no key, and the second would replace the
-  // first one's key, because generating under an existing alias replaces it.
-  private val keyLock = Any()
+  // Tauri calls a command on the UI thread. One worker keeps the slow Keystore
+  // and disk work off it, and runs the calls in order, so two makeKey calls
+  // cannot both find no key and replace each other's key.
+  private val worker = Executors.newSingleThreadExecutor()
 
   private fun answer(invoke: Invoke, name: String, body: () -> JSObject) {
-    val result = try {
-      body()
-    } catch (e: Exception) {
-      invoke.reject("$name failed: ${e.message ?: e.javaClass.simpleName}")
-      return
+    worker.execute {
+      val result = try {
+        body()
+      } catch (e: Exception) {
+        invoke.reject("$name failed: ${e.message ?: e.javaClass.simpleName}")
+        return@execute
+      }
+      invoke.resolve(result)
     }
-    invoke.resolve(result)
   }
 
   private fun fileFor(key: String): File {
@@ -130,7 +130,8 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       return when (info.securityLevel) {
         KeyProperties.SECURITY_LEVEL_STRONGBOX -> "strongbox"
-        KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> "hardware"
+        KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT,
+        KeyProperties.SECURITY_LEVEL_UNKNOWN_SECURE -> "hardware"
         else -> "software"
       }
     }
@@ -163,17 +164,34 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
       .edit().putBoolean(MADE_IN_STRONGBOX, made).commit()
   }
 
-  /** Null when this phone cannot make a key at all. */
-  private fun makeNewKey(): PrivateKey? {
+  // Called only when no key exists, so nothing good is lost.
+  private fun removePartialKey() {
     try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        try {
-          val key = generate(strongBox = true)
-          rememberStrongBox(true)
-          return key
-        } catch (_: StrongBoxUnavailableException) {
-        }
+      val store = keyStore()
+      if (store.containsAlias(ALIAS)) store.deleteEntry(ALIAS)
+    } catch (_: GeneralSecurityException) {
+    } catch (_: IOException) {
+    }
+  }
+
+  /**
+   * Tries StrongBox first, and on any failure of that attempt tries again
+   * without it. Null when both attempts fail, so the phone cannot make a key.
+   */
+  private fun makeNewKey(): PrivateKey? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val key = try {
+        generate(strongBox = true)
+      } catch (_: Exception) {
+        null
       }
+      if (key != null) {
+        rememberStrongBox(true)
+        return key
+      }
+      removePartialKey()
+    }
+    try {
       val key = generate(strongBox = false)
       rememberStrongBox(false)
       return key
@@ -185,47 +203,43 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun readValue(key: String): JSObject {
-    synchronized(fileLock) {
-      val file = fileFor(key)
-      val unreadable = JSObject().put("unreadable", true)
-      if (file.isDirectory || file.length() > FILE_MAX) return unreadable
-      val bytes = try {
-        AtomicFile(file).readFully()
-      } catch (_: FileNotFoundException) {
-        return if (file.exists()) unreadable else JSObject()
-      } catch (_: IOException) {
-        return unreadable
-      }
-      val text = try {
-        Charsets.UTF_8.newDecoder()
-          .onMalformedInput(CodingErrorAction.REPORT)
-          .onUnmappableCharacter(CodingErrorAction.REPORT)
-          .decode(ByteBuffer.wrap(bytes))
-          .toString()
-      } catch (_: CharacterCodingException) {
-        return unreadable
-      }
-      return JSObject().put("text", text)
+    val file = fileFor(key)
+    val unreadable = JSObject().put("unreadable", true)
+    if (file.isDirectory || file.length() > FILE_MAX) return unreadable
+    val bytes = try {
+      AtomicFile(file).readFully()
+    } catch (_: FileNotFoundException) {
+      return if (file.exists()) unreadable else JSObject()
+    } catch (_: IOException) {
+      return unreadable
     }
+    val text = try {
+      Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString()
+    } catch (_: CharacterCodingException) {
+      return unreadable
+    }
+    return JSObject().put("text", text)
   }
 
   private fun writeValue(key: String, text: String) {
-    synchronized(fileLock) {
-      val file = fileFor(key)
-      if (!directory.isDirectory && !directory.mkdirs()) {
-        throw VaultError("The vault folder cannot be made")
-      }
-      // AtomicFile would move a directory aside as its backup.
-      if (file.isDirectory) throw VaultError("The path of the value is a folder")
-      val atomic = AtomicFile(file)
-      val out = atomic.startWrite()
-      try {
-        out.write(text.toByteArray(Charsets.UTF_8))
-        atomic.finishWrite(out)
-      } catch (e: Exception) {
-        atomic.failWrite(out)
-        throw e
-      }
+    val file = fileFor(key)
+    if (!directory.isDirectory && !directory.mkdirs()) {
+      throw VaultError("The vault folder cannot be made")
+    }
+    // AtomicFile would move a directory aside as its backup.
+    if (file.isDirectory) throw VaultError("The path of the value is a folder")
+    val atomic = AtomicFile(file)
+    val out = atomic.startWrite()
+    try {
+      out.write(text.toByteArray(Charsets.UTF_8))
+      atomic.finishWrite(out)
+    } catch (e: Exception) {
+      atomic.failWrite(out)
+      throw e
     }
   }
 
@@ -253,11 +267,8 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun makeKey(invoke: Invoke) {
     answer(invoke, "makeKey") {
-      synchronized(keyLock) {
-        val store = keyStore()
-        val key = privateKey(store) ?: makeNewKey()
-        levelAnswer(key?.let { levelOf(it) })
-      }
+      val key = privateKey(keyStore()) ?: makeNewKey()
+      levelAnswer(key?.let { levelOf(it) })
     }
   }
 
@@ -287,6 +298,8 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
       val ok = try {
         signature.verify(sig)
       } catch (_: SignatureException) {
+        false
+      } catch (_: RuntimeException) {
         false
       }
       JSObject().put("ok", ok)
