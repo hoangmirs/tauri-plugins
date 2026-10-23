@@ -33,8 +33,8 @@ struct Verified: Encodable {
   let ok: Bool
 }
 
-/// Answers `{"level": null}` when there is no key, so the Rust side reads
-/// "no key" and not a missing field.
+/// Answers `{"level": null}` when there is no key, the same answer Android
+/// gives. The encoder Swift writes for an optional would leave the field out.
 struct KeyLevel: Encodable {
   let level: String?
 
@@ -92,10 +92,22 @@ class VaultPlugin: Plugin {
     if status == errSecItemNotFound {
       return nil
     }
-    guard status == errSecSuccess, let found, CFGetTypeID(found) == SecKeyGetTypeID() else {
+    guard status == errSecSuccess else {
       throw VaultError(message: "The Keychain refused the key read (\(status))")
     }
-    return unsafeDowncast(found, to: SecKey.self)
+    if let found, CFGetTypeID(found) == SecKeyGetTypeID() {
+      let key = unsafeDowncast(found, to: SecKey.self)
+      if SecKeyIsAlgorithmSupported(key, .sign, algorithm), SecKeyCopyPublicKey(key) != nil {
+        return key
+      }
+    }
+    // A key that cannot sign counts as no key, so the next read makes a new
+    // one. Rejecting would leave the app in a mirror session on every start.
+    let deleted = SecItemDelete(keyQuery as CFDictionary)
+    guard deleted == errSecSuccess || deleted == errSecItemNotFound else {
+      throw VaultError(message: "The Keychain refused to delete an unusable key (\(deleted))")
+    }
+    return nil
   }
 
   private func level(of key: SecKey) -> String {
@@ -126,7 +138,9 @@ class VaultPlugin: Plugin {
     }
     attributes[kSecPrivateKeyAttrs as String] = privateAttributes
     var error: Unmanaged<CFError>?
-    return SecKeyCreateRandomKey(attributes as CFDictionary, &error)
+    let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error)
+    error?.release()
+    return key
   }
 
   @objc public func load(_ invoke: Invoke) {

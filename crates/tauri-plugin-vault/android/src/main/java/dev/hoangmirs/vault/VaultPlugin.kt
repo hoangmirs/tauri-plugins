@@ -28,6 +28,7 @@ import java.security.ProviderException
 import java.security.PublicKey
 import java.security.Signature
 import java.security.SignatureException
+import java.security.UnrecoverableKeyException
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 import java.util.concurrent.Executors
@@ -87,7 +88,7 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
     worker.execute {
       val result = try {
         body()
-      } catch (e: Exception) {
+      } catch (e: Throwable) {
         invoke.reject("$name failed: ${e.message ?: e.javaClass.simpleName}")
         return@execute
       }
@@ -112,10 +113,18 @@ class VaultPlugin(private val activity: Activity) : Plugin(activity) {
 
   private fun keyStore(): KeyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
 
+  // An entry that cannot be used is deleted and counts as no key. Rejecting
+  // would leave the phone in a mirror session on every start.
   private fun privateKey(store: KeyStore): PrivateKey? {
     if (!store.containsAlias(ALIAS)) return null
-    return store.getKey(ALIAS, null) as? PrivateKey
-      ?: throw VaultError("The Keystore holds an entry named $ALIAS that is not a private key")
+    val key = try {
+      store.getKey(ALIAS, null)
+    } catch (_: UnrecoverableKeyException) {
+      null
+    }
+    if (key is PrivateKey) return key
+    store.deleteEntry(ALIAS)
+    return null
   }
 
   @Suppress("DEPRECATION")

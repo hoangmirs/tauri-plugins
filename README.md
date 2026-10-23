@@ -467,7 +467,7 @@ The vault does not stop these:
 - A person with root on Android who deletes the signing key and then edits the
   value. The next `read` answers `restored` and signs the edit.
 - A person who deletes the stored value. The next `read` answers `empty`.
-- A person who puts back an older copy of a value. The copy still verifies,
+- A person who restores an older copy of a value. The copy still verifies,
   because the vault keeps no counter.
 
 ### Commands
@@ -489,7 +489,8 @@ app. `state` is one of five words:
   signature.
 
 A value stored as `unsigned` reads as `restored` once the device can make a
-signing key. The plugin signs the value then.
+signing key. The plugin signs the value then. When a `write` under another key
+name made the signing key first, the value reads `tampered`.
 
 A value that the plugin reaches but cannot verify is `tampered`, never an
 error. A person with root then cannot break the stored value to make the app
@@ -502,10 +503,12 @@ key name or a value that breaks the limits below is also an error.
 ### The signing key
 
 The signing key signs with ECDSA on P-256 and SHA-256. The plugin makes it at
-the first `write`. It makes it again at a `read` that finds a value whose
-signing key is gone. It tries these steps in order:
+the first `write`. After a signing key loss, it makes a new one at the next
+`write`, or at a `read` that finds a value whose signing key is gone. It tries
+these steps in order:
 
-1. iOS: a signing key in the Secure Enclave. Android 9 and later: one in StrongBox.
+1. iOS: a signing key in the Secure Enclave. Android 9 and later: one in
+   StrongBox.
 2. Android: a signing key in the trusted execution environment, or the
    software Keystore on a phone without one. The system picks between the two.
 3. iOS without a Secure Enclave, such as the Simulator: a software signing key
@@ -515,6 +518,10 @@ signing key is gone. It tries these steps in order:
 
 No step stops the app. The worst case is `unsigned`. The signing key needs no
 screen unlock, so a change of passcode does not lose it.
+
+A signing key that exists but cannot be used counts as gone. The plugin
+deletes it, and the next `read` answers `restored`. A Keychain or Keystore
+that cannot open is still an error.
 
 The signature covers the key name and the value. A signature cannot move from
 one key name to another.
@@ -527,9 +534,9 @@ one key name to another.
   value as a fresh install.
 - **Android:** one file for each key name, `vault/<key name>.json` in the app's
   private files folder. Auto Backup includes the file, unless the app's backup
-  rules exclude it. Auto Backup never includes a Keystore signing key. A restored file
-  therefore arrives without its signing key. The first read after a restore
-  answers `restored` and signs the value again.
+  rules exclude it. Auto Backup never includes a Keystore signing key. A
+  restored file therefore arrives without its signing key. The first read
+  after a restore answers `restored` and signs the value again.
 
 ### Limits
 

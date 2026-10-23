@@ -98,7 +98,10 @@ pub enum Level {
 pub trait Native: Send + Sync {
     async fn load(&self, key: &str) -> Result<Stored, String>;
     async fn save(&self, key: &str, text: &str) -> Result<(), String>;
-    /// `Ok(None)` when no key exists. That case is never an error.
+    /// `Ok(None)` when no key exists. That case is never an error. A key that
+    /// exists but cannot be used counts as gone: the platform deletes it and
+    /// answers `Ok(None)`, so the next read makes a new key and answers
+    /// `Restored`. A key store that cannot open is still `Err`.
     async fn key_level(&self) -> Result<Option<Level>, String>;
     /// Makes the key and answers its level. When a key already exists, answers
     /// that key's level and never replaces it. `Ok(None)` when the device
