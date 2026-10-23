@@ -184,6 +184,20 @@ async fn get_all<R: Runtime>(
     Ok(values::defaults_view(&state.get()))
 }
 
+/// Sets the custom signals that Remote Config conditions read. A number sets
+/// a signal and `null` unsets it. On a desktop, and in `"absent"` mode, it
+/// does nothing.
+#[tauri::command]
+#[allow(clippy::unused_async)]
+async fn set_custom_signals<R: Runtime>(app: tauri::AppHandle<R>, signals: Map<String, Value>) {
+    #[cfg(mobile)]
+    native(&app)
+        .call("setCustomSignals", serde_json::json!({ "signals": signals }))
+        .await;
+    #[cfg(not(mobile))]
+    let _ = (app, signals);
+}
+
 #[tauri::command]
 #[allow(clippy::unused_async)]
 async fn log_event<R: Runtime>(
@@ -226,6 +240,7 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
             get_all,
             listen,
             unlisten,
+            set_custom_signals,
             log_event,
             set_collection,
             crash::crash_set_collection,

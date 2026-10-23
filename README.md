@@ -653,6 +653,26 @@ app calls `activate`. The app picks the moment a change shows, for example
 never in the middle of a game. A `fetch` inside the minimum interval (15
 minutes unless the app sets another) answers from Firebase's cache.
 
+### Custom signals
+
+`setCustomSignals(signals)` sets the values that Remote Config conditions read
+as `app.customSignal`. A number sets a signal, and `null` unsets it. A
+condition sees the signals at the next fetch, so set them before `fetch`.
+
+```ts
+import { fetch, setCustomSignals } from "tauri-plugin-firebase-api";
+
+await setCustomSignals({ split_new_list: 0.274, split_old_test: null });
+await fetch();
+```
+
+- Firebase keeps up to 100 signals on each install, with names up to 250
+  characters. A set that breaks a limit is refused whole.
+- The plugin sends numbers only: Firebase compares them with `<`, `<=`, `==`,
+  `!=`, `>=` and `>`.
+- It never rejects. A desktop app without the web config, and a phone without
+  its Firebase file, do nothing.
+
 ### Live updates
 
 `listen(on)` hears each publish while the app is open, and calls `on` with

@@ -451,6 +451,18 @@
           "markdownDescription": "Denies the set_collection command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_custom_signals command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-custom-signals",
+          "markdownDescription": "Enables the set_custom_signals command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_custom_signals command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-custom-signals",
+          "markdownDescription": "Denies the set_custom_signals command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_defaults command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-defaults",
@@ -475,10 +487,10 @@
           "markdownDescription": "Denies the unlisten command without any pre-configured scope."
         },
         {
-          "description": "Read Remote Config and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`",
+          "description": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read Remote Config and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`"
+          "markdownDescription": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`"
         }
       ]
     }
