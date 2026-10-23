@@ -12,6 +12,7 @@ struct Inner {
     saved: HashMap<String, String>,
     unreadable: HashSet<String>,
     key: Option<Level>,
+    generation: u32,
     cannot_make_key: bool,
     failing: HashSet<&'static str>,
 }
@@ -37,8 +38,8 @@ impl Fake {
     }
 }
 
-fn fake_signature(msg: &[u8]) -> Vec<u8> {
-    [b"sig:".as_slice(), msg].concat()
+fn fake_signature(generation: u32, msg: &[u8]) -> Vec<u8> {
+    [format!("sig:{generation}:").as_bytes(), msg].concat()
 }
 
 #[async_trait::async_trait]
@@ -58,6 +59,9 @@ impl Native for Fake {
     }
 
     async fn save(&self, key: &str, text: &str) -> Result<(), String> {
+        if self.0.lock().unwrap().failing.contains("save") {
+            return Err("save failed".into());
+        }
         self.put(key, text);
         Ok(())
     }
@@ -72,22 +76,33 @@ impl Native for Fake {
 
     async fn make_key(&self) -> Result<Option<Level>, String> {
         let mut inner = self.0.lock().unwrap();
+        if inner.failing.contains("make_key") {
+            return Err("make key failed".into());
+        }
         if inner.cannot_make_key {
             return Ok(None);
         }
-        inner.key = Some(Level::Software);
+        if inner.key.is_none() {
+            inner.key = Some(Level::Software);
+            inner.generation += 1;
+        }
         Ok(inner.key)
     }
 
     async fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
-        Ok(fake_signature(msg))
+        let inner = self.0.lock().unwrap();
+        if inner.failing.contains("sign") {
+            return Err("sign failed".into());
+        }
+        Ok(fake_signature(inner.generation, msg))
     }
 
     async fn verify(&self, msg: &[u8], sig: &[u8]) -> Result<bool, String> {
-        if self.0.lock().unwrap().failing.contains("verify") {
+        let inner = self.0.lock().unwrap();
+        if inner.failing.contains("verify") {
             return Err("verify failed".into());
         }
-        Ok(sig == fake_signature(msg))
+        Ok(sig == fake_signature(inner.generation, msg))
     }
 }
 
@@ -224,6 +239,53 @@ async fn a_failing_primitive_is_an_error_not_tampered() {
         i.failing.insert("verify");
     });
     assert!(read(&fake, "wallet").await.is_err());
+    fake.with(|i| {
+        i.failing.remove("verify");
+    });
+
+    fake.with(|i| {
+        i.failing.insert("save");
+        i.failing.insert("sign");
+        i.failing.insert("make_key");
+    });
+    assert!(write(&fake, "wallet", "6").await.is_err());
+    fake.with(|i| {
+        i.failing.remove("save");
+        i.failing.remove("sign");
+    });
+    assert!(write(&fake, "wallet", "6").await.is_ok());
+    fake.lose_key();
+    assert!(read(&fake, "wallet").await.is_err());
+}
+
+#[tokio::test]
+async fn a_failed_sign_after_a_new_key_is_an_error_and_the_next_read_is_tampered() {
+    let fake = Fake::default();
+    write(&fake, "wallet", "5").await.unwrap();
+    fake.lose_key();
+    fake.with(|i| {
+        i.failing.insert("sign");
+    });
+    assert!(read(&fake, "wallet").await.is_err());
+    fake.with(|i| {
+        i.failing.remove("sign");
+    });
+    assert_eq!(read(&fake, "wallet").await.unwrap().state, State::Tampered);
+}
+
+#[tokio::test]
+async fn a_failed_save_after_a_new_key_is_an_error_and_the_next_read_is_tampered() {
+    let fake = Fake::default();
+    write(&fake, "wallet", "5").await.unwrap();
+    fake.lose_key();
+    fake.with(|i| {
+        i.failing.insert("save");
+    });
+    assert!(read(&fake, "wallet").await.is_err());
+    fake.with(|i| {
+        i.failing.remove("save");
+    });
+    assert_eq!(read(&fake, "wallet").await.unwrap().state, State::Tampered);
 }
 
 #[test]

@@ -6,8 +6,9 @@
 //! Without an Enclave, such as in the Simulator, the key is a software key kept
 //! as a Keychain item. On Android the value is a file in the app's data and the
 //! key lives in the Keystore, in `StrongBox` or the TEE when the phone has one.
-//! A key is made at the first `write`. A device that cannot make one stores the
-//! value without a signature.
+//! A key is made at the first `write`, or at a `read` that finds a value
+//! whose key is gone. A device that cannot make one stores the value without a
+//! signature.
 //!
 //! Two commands:
 //!
@@ -74,13 +75,19 @@ mod mobile {
     impl<R: Runtime> Native for Mobile<R> {
         async fn load(&self, key: &str) -> Result<Stored, String> {
             let answer = self.ask("load", json!({ "key": key })).await?;
-            if answer.get("unreadable").and_then(Value::as_bool) == Some(true) {
-                return Ok(Stored::Unreadable);
+            let answer = answer
+                .as_object()
+                .ok_or("the answer to load is not an object")?;
+            match answer.get("unreadable") {
+                None | Some(Value::Null | Value::Bool(false)) => {}
+                Some(Value::Bool(true)) => return Ok(Stored::Unreadable),
+                Some(_) => return Err("the answer to load has an odd unreadable".to_owned()),
             }
-            Ok(answer
-                .get("text")
-                .and_then(Value::as_str)
-                .map_or(Stored::Missing, |t| Stored::Text(t.to_owned())))
+            match answer.get("text") {
+                None | Some(Value::Null) => Ok(Stored::Missing),
+                Some(Value::String(text)) => Ok(Stored::Text(text.clone())),
+                Some(_) => Err("the answer to load has a text that is not a string".to_owned()),
+            }
         }
 
         async fn save(&self, key: &str, text: &str) -> Result<(), String> {

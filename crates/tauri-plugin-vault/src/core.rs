@@ -98,11 +98,18 @@ pub enum Level {
 pub trait Native: Send + Sync {
     async fn load(&self, key: &str) -> Result<Stored, String>;
     async fn save(&self, key: &str, text: &str) -> Result<(), String>;
-    /// `None`: no key yet.
+    /// `Ok(None)` when no key exists. That case is never an error.
     async fn key_level(&self) -> Result<Option<Level>, String>;
-    /// `None`: the device cannot make a key.
+    /// Makes the key and answers its level. When a key already exists, answers
+    /// that key's level and never replaces it. `Ok(None)` when the device
+    /// cannot make a key.
     async fn make_key(&self) -> Result<Option<Level>, String>;
     async fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, String>;
+    /// Answers `Ok(false)` for any signature the system cannot parse or check
+    /// against the key, such as one with a bad encoding. Answers `Err` only
+    /// when the key store itself fails, for example when the key cannot be
+    /// loaded. An `Err` here would let a person with root turn `Tampered` into
+    /// an error by breaking the stored signature.
     async fn verify(&self, msg: &[u8], sig: &[u8]) -> Result<bool, String>;
 }
 
@@ -163,6 +170,9 @@ pub async fn read(n: &dyn Native, key: &str) -> Result<Read, String> {
 
     let state = if n.key_level().await?.is_none() {
         if n.make_key().await?.is_some() {
+            // The key exists before the value is signed again. When `sign` or
+            // `save` then fails, this read is an error and the next read is
+            // `Tampered`: the stored signature belongs to the lost key.
             save_signed(n, key, &value).await?;
             State::Restored
         } else if sig.is_none() {
@@ -182,6 +192,9 @@ pub async fn read(n: &dyn Native, key: &str) -> Result<Read, String> {
 
 /// Stores `value` under `key`, signed when the device has a key or can make
 /// one.
+///
+/// The key exists before the value is signed. When `sign` or `save` then
+/// fails on a first write, the write is an error and the key stays.
 ///
 /// # Errors
 /// A `Native` call failed.
