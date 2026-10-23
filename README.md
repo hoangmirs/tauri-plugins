@@ -450,6 +450,117 @@ const kept = await invoke<string | null>("plugin:keep|get", { key: "kept" });
 await invoke("plugin:keep|remove", { key: "kept" });
 ```
 
+## `tauri-plugin-vault`
+
+Keeps a small text value that an edit made outside the app cannot change
+without failing a check. A key on the device signs each value. The key never
+leaves the device. A read answers the value and a state that says whether the
+signature matches.
+
+The vault stops a person who edits the stored value, for example on a rooted
+or jailbroken phone. The edit fails the check. It does not stop a person who
+runs code inside the app, for example with a run-time hook. That code asks the
+plugin to write.
+
+### Commands
+
+- `read { key }` answers `{ value, state }`. `value` is a string or `null`.
+- `write { key, value }` answers `{ state }`.
+
+`state` is one of five words:
+
+- `empty`: nothing is stored under the key.
+- `verified`: the signature matches a key that the device made.
+- `restored`: a value is stored and its signing key is gone, as after a
+  reinstall that brought the file back. The plugin signs the value again with
+  a new key and returns it.
+- `tampered`: a value is stored and the plugin cannot verify it. `value` is the
+  stored text, or `null` when the plugin cannot read any text.
+- `unsigned`: the device cannot make a signing key. The value is stored with no
+  signature.
+
+A value that the plugin reaches but cannot verify is `tampered`, never an
+error. A person with root then cannot break the stored value to make the app
+fall back to a weaker store.
+
+An error means the plugin could not run the command. A Keychain or Keystore
+call failed, or the platform has no vault. A key or a value that breaks the
+limits below is also an error.
+
+### The signing key
+
+The key signs with ECDSA on P-256 and SHA-256. The plugin makes it once, at
+the first `write`, and tries these steps in order:
+
+1. iOS: a Secure Enclave key. Android 9 and later: a StrongBox key.
+2. Android: a Keystore key in the trusted execution environment, or the
+   software Keystore on a phone without one. The system picks between the two.
+3. iOS without a Secure Enclave, such as the Simulator: a software key kept
+   as a Keychain item for this device only.
+4. No key can be made: the value is stored with no signature and the state is
+   `unsigned`.
+
+No step stops the app. The worst case is `unsigned`. The key needs no screen
+unlock, so a change of passcode does not lose it.
+
+The signature covers the key name and the value. A signature cannot move from
+one key name to another.
+
+### Where a value lives
+
+- **iOS:** one Keychain item for each key. The item is "after first unlock,
+  this device only" and never synchronized. iOS keeps Keychain items after the
+  app is deleted. Apple does not document this, so read a missing value as a
+  fresh install.
+- **Android:** one file for each key, `vault/<key>.json` in the app's private
+  files folder. Auto Backup includes the file but never a Keystore key. A
+  restored file therefore arrives without its key. The first read after a
+  restore answers `restored` and signs the value again.
+
+### Limits
+
+- One signing key serves the whole app, and every vault key shares it. After a
+  key loss, the first key read answers `restored` and signs only that value.
+  Any other key reads `tampered`. Keep one vault key for each app, or expect
+  this.
+- A read that finds a value whose key is gone makes a new key. When the
+  signing or the save that follows fails, that read is an error. The next
+  read answers `tampered`. A `write` that fails after it makes the first key
+  is also an error, and the key stays.
+- A value is at most 64 KiB of text.
+- A key is 1 to 64 letters, digits, `.`, `-` or `_`.
+- The plugin works on iOS 14 or later and on Android 8 (API 26) or later.
+  On any other platform both commands answer an error.
+
+### Setup (Rust)
+
+```toml
+tauri-plugin-vault = "=0.1.0-alpha.1"
+```
+
+```rust
+app.handle().plugin(tauri_plugin_vault::init())?;
+```
+
+Add `vault:default` to a capability. It allows `read` and `write`.
+
+### Use (TypeScript)
+
+```ts
+import { invoke } from "@tauri-apps/api/core";
+
+type State = "empty" | "verified" | "restored" | "tampered" | "unsigned";
+
+const { state } = await invoke<{ state: State }>("plugin:vault|write", {
+  key: "wallet",
+  value: JSON.stringify(wallet),
+});
+const { value, state: checked } = await invoke<{
+  value: string | null;
+  state: State;
+}>("plugin:vault|read", { key: "wallet" });
+```
+
 ## `tauri-plugin-purchase`
 
 Buys and restores one-time purchases, and sells consumables, through the phone's own store:
