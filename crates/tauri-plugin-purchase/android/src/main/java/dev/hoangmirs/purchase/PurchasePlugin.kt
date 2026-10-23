@@ -175,7 +175,9 @@ class PurchasePlugin(private val activity: Activity) : Plugin(activity) {
     buying = null
     when (result.responseCode) {
       BillingResponseCode.OK -> {
-        val p = purchases?.firstOrNull()
+        // One callback can carry another product's purchase too, which went
+        // out as `arrived`. Its token here would pay the sheet's product twice.
+        val p = purchases?.firstOrNull { id in it.products }
         invoke.resolve(
           when (p?.purchaseState) {
             Purchase.PurchaseState.PURCHASED -> bought(p)
