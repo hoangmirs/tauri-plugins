@@ -16,6 +16,7 @@ const COMMANDS: &[&str] = &[
     // a mobile plugin's events; listing them lets a webview hear `configUpdate`.
     "register_listener",
     "remove_listener",
+    "set_custom_signals",
     "log_event",
     "set_collection",
     "crash_set_collection",

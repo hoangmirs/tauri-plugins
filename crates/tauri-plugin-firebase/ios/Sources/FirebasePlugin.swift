@@ -8,6 +8,10 @@ class ConfigureArgs: Decodable {
   let minimumFetchIntervalSeconds: Double
 }
 
+class SignalsArgs: Decodable {
+  let signals: [String: Double?]
+}
+
 class CollectionArgs: Decodable {
   let enabled: Bool
 }
@@ -145,6 +149,19 @@ class FirebasePlugin: Plugin {
     }
     Analytics.logEvent(name, parameters: params.isEmpty ? nil : params)
     invoke.resolve()
+  }
+
+  @objc public func setCustomSignals(_ invoke: Invoke) {
+    guard let args = try? invoke.parseArgs(SignalsArgs.self) else {
+      invoke.resolve()
+      return
+    }
+    let signals = args.signals.mapValues { $0.map { CustomSignalValue.double($0) } }
+    Task {
+      // Firebase refuses the whole set when one signal breaks a limit. The conditions then see none.
+      try? await RemoteConfig.remoteConfig().setCustomSignals(signals)
+      invoke.resolve()
+    }
   }
 
   @objc public func setCollection(_ invoke: Invoke) {

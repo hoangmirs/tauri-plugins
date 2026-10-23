@@ -1,6 +1,6 @@
 ## Default Permission
 
-Read Remote Config and hear its publishes, log Analytics events and send crash reports
+Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports
 
 #### This default permission set includes the following:
 
@@ -13,6 +13,7 @@ Read Remote Config and hear its publishes, log Analytics events and send crash r
 - `allow-unlisten`
 - `allow-register-listener`
 - `allow-remove-listener`
+- `allow-set-custom-signals`
 - `allow-log-event`
 - `allow-set-collection`
 - `allow-crash-set-collection`
@@ -363,6 +364,32 @@ Enables the set_collection command without any pre-configured scope.
 <td>
 
 Denies the set_collection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-set-custom-signals`
+
+</td>
+<td>
+
+Enables the set_custom_signals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-set-custom-signals`
+
+</td>
+<td>
+
+Denies the set_custom_signals command without any pre-configured scope.
 
 </td>
 </tr>

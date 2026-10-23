@@ -6,8 +6,8 @@
 import { addPluginListener, invoke, isTauri, type PluginListener } from "@tauri-apps/api/core";
 import * as web from "./web.ts";
 
-export type { Defaults, Entry, Fetched, Loader, Params, Source, WebConfig } from "./web.ts";
-import type { Defaults, Entry, Fetched, Loader, Params, WebConfig } from "./web.ts";
+export type { Defaults, Entry, Fetched, Loader, Params, Signals, Source, WebConfig } from "./web.ts";
+import type { Defaults, Entry, Fetched, Loader, Params, Signals, WebConfig } from "./web.ts";
 
 /** Firebase keeps at most 25 parameters on an event, and text up to 100. */
 const MAX_PARAMS = 25;
@@ -137,6 +137,13 @@ async function stopNative(started: Promise<PluginListener | null> | undefined): 
 export async function activate(): Promise<boolean> {
   if ((await routeOf()) === "web") return web.activate();
   return command("activate", undefined, false);
+}
+
+/** Sets the custom signals that Remote Config conditions read, for the
+ *  next fetch. A number sets a signal and `null` unsets it. Never rejects. */
+export async function setCustomSignals(signals: Signals): Promise<void> {
+  if ((await routeOf()) === "web") return web.setCustomSignals(signals);
+  await command("set_custom_signals", { signals }, undefined);
 }
 
 export async function getAll(): Promise<Record<string, Entry>> {

@@ -15,6 +15,7 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.google.firebase.remoteconfig.ConfigUpdate
 import com.google.firebase.remoteconfig.ConfigUpdateListener
 import com.google.firebase.remoteconfig.ConfigUpdateListenerRegistration
+import com.google.firebase.remoteconfig.CustomSignals
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigFetchThrottledException
@@ -187,6 +188,21 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
     }
     FirebaseAnalytics.getInstance(activity).logEvent(name, params)
     invoke.resolve()
+  }
+
+  @Command
+  fun setCustomSignals(invoke: Invoke) {
+    val signals = invoke.getArgs().getJSObject("signals")
+    if (signals == null) {
+      invoke.resolve()
+      return
+    }
+    val builder = CustomSignals.Builder()
+    for (name in signals.keys()) {
+      if (signals.isNull(name)) builder.put(name, null as String?) else builder.put(name, signals.getDouble(name))
+    }
+    // Firebase refuses the whole set when one signal breaks a limit. The conditions then see none.
+    config().setCustomSignals(builder.build()).addOnCompleteListener { invoke.resolve() }
   }
 
   @Command

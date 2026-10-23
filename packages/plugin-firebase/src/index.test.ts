@@ -14,6 +14,7 @@ import {
   setCollection,
   setCrashCollection,
   setCrashKeys,
+  setCustomSignals,
   setDefaults,
 } from "./index.ts";
 import type { Sdk } from "./web.ts";
@@ -462,4 +463,38 @@ test("on a phone whose bridge refuses, listen resolves and never throws", async 
   });
   const stop = await listen(() => assert.fail("heard nothing"));
   assert.doesNotThrow(() => stop());
+});
+
+test("setCustomSignals on the web route passes the signals to the SDK", async () => {
+  const seen: unknown[] = [];
+  const { sdk } = fakeSdk({
+    setCustomSignals: async (_rc, signals) => {
+      seen.push(signals);
+    },
+  });
+  await init(WEB, async () => sdk);
+  await setCustomSignals({ split_a: 0.25, split_b: null });
+  assert.deepEqual(seen, [{ split_a: 0.25, split_b: null }]);
+});
+
+test("setCustomSignals on a phone invokes set_custom_signals", async () => {
+  const calls = setupTauri((cmd) => (cmd === "plugin:firebase|mode" ? "native" : null));
+  await setCustomSignals({ split_a: 0.25 });
+  assert.deepEqual(calls.at(-1), { cmd: "plugin:firebase|set_custom_signals", args: { signals: { split_a: 0.25 } } });
+});
+
+test("setCustomSignals never rejects", async () => {
+  const { sdk } = fakeSdk({
+    setCustomSignals: async () => {
+      throw new Error("refused");
+    },
+  });
+  await init(WEB, async () => sdk);
+  await setCustomSignals({ split_a: 0.5 });
+  await resetForTests();
+  setupTauri((cmd) => {
+    if (cmd === "plugin:firebase|mode") return "native";
+    throw new Error("no command");
+  });
+  await setCustomSignals({ split_a: 0.5 });
 });

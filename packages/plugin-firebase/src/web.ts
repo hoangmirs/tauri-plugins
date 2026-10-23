@@ -11,6 +11,8 @@ export type Entry = { value: string; source: Source };
 export type Fetched = "fetched" | "throttled" | "failed";
 export type Params = Record<string, string | number>;
 export type Defaults = Record<string, string | number | boolean>;
+/** Custom signals for Remote Config conditions. `null` unsets a signal. */
+export type Signals = Record<string, number | null>;
 export type WebConfig = { options: Record<string, string>; minimumFetchIntervalMillis: number };
 
 type RemoteConfig = {
@@ -24,6 +26,7 @@ export type Sdk = {
   getRemoteConfig(app: unknown): RemoteConfig;
   fetchConfig(rc: RemoteConfig): Promise<void>;
   activate(rc: RemoteConfig): Promise<boolean>;
+  setCustomSignals(rc: RemoteConfig, signals: Signals): Promise<void>;
   getAll(rc: RemoteConfig): Record<string, { asString(): string; getSource(): Source }>;
   isSupported(): Promise<boolean>;
   initializeAnalytics(app: unknown, options: { config: { send_page_view: boolean } }): unknown;
@@ -110,6 +113,17 @@ export async function activate(): Promise<boolean> {
     return await sdk.activate(rc);
   } catch {
     return false;
+  }
+}
+
+export async function setCustomSignals(signals: Signals): Promise<void> {
+  await state.started;
+  const { sdk, rc } = state;
+  if (!sdk || !rc) return;
+  try {
+    await sdk.setCustomSignals(rc, signals);
+  } catch {
+    // Firebase refuses the whole set when one breaks a limit: the conditions then see none.
   }
 }
 

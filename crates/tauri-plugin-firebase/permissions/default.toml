@@ -1,5 +1,5 @@
 [default]
-description = "Read Remote Config and hear its publishes, log Analytics events and send crash reports"
+description = "Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports"
 permissions = [
   "allow-mode",
   "allow-set-defaults",
@@ -10,6 +10,7 @@ permissions = [
   "allow-unlisten",
   "allow-register-listener",
   "allow-remove-listener",
+  "allow-set-custom-signals",
   "allow-log-event",
   "allow-set-collection",
   "allow-crash-set-collection",
