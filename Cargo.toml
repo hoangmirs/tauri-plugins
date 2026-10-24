@@ -10,6 +10,7 @@ members = [
   "crates/tauri-plugin-silent-mode",
   "crates/tauri-plugin-store-review",
   "crates/tauri-plugin-update-gate",
+  "crates/tauri-plugin-vault",
 ]
 resolver = "2"
 
@@ -26,6 +27,7 @@ repository = "https://github.com/hoangmirs/tauri-plugins"
 # the version tested here; Cargo.lock keeps this workspace's own build exact.
 # `tempfile` is only a dev-dependency, so it stays exact.
 async-trait = "0.1.92"
+base64 = "0.22.1"
 log = "0.4.34"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -192,7 +192,10 @@ async fn get_all<R: Runtime>(
 async fn set_custom_signals<R: Runtime>(app: tauri::AppHandle<R>, signals: Map<String, Value>) {
     #[cfg(mobile)]
     native(&app)
-        .call("setCustomSignals", serde_json::json!({ "signals": signals }))
+        .call(
+            "setCustomSignals",
+            serde_json::json!({ "signals": signals }),
+        )
         .await;
     #[cfg(not(mobile))]
     let _ = (app, signals);

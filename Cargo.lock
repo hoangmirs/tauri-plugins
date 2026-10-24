@@ -2907,6 +2907,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-vault"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

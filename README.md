@@ -450,6 +450,139 @@ const kept = await invoke<string | null>("plugin:keep|get", { key: "kept" });
 await invoke("plugin:keep|remove", { key: "kept" });
 ```
 
+## `tauri-plugin-vault`
+
+Keeps a small text value that an edit made outside the app cannot change
+without failing a check. A signing key on the device signs each value. The
+signing key never leaves the device. A read answers the value and a state that
+says whether the signature matches.
+
+The vault stops a person who edits the stored value, for example on a rooted
+or jailbroken phone. The edit fails the check.
+
+The vault does not stop these:
+
+- A person who runs code inside the app, for example with a run-time hook.
+  That code asks the plugin to write.
+- A person with root on Android who deletes the signing key and then edits the
+  value. The next `read` answers `restored` and signs the edit.
+- A person who deletes the stored value. The next `read` answers `empty`.
+- A person who restores an older copy of a value. The copy still verifies,
+  because the vault keeps no counter.
+
+### Commands
+
+- `read { key }` answers `{ value, state }`. `value` is a string or `null`.
+- `write { key, value }` answers `{ state }`.
+
+`key` is the key name of a value. The vault has one signing key for the whole
+app. `state` is one of five words:
+
+- `empty`: nothing is stored under the key name.
+- `verified`: the signature matches a signing key that the device made.
+- `restored`: a value is stored and its signing key is gone, as after a
+  reinstall that restored the file. The plugin makes a new signing key, signs
+  the value again and returns it. A rooted person can also force this state.
+- `tampered`: a value is stored and the plugin cannot verify it. `value` is the
+  stored text, or `null` when the plugin cannot read any text.
+- `unsigned`: the device cannot make a signing key. The value is stored with no
+  signature.
+
+A value stored as `unsigned` reads as `restored` once the device can make a
+signing key. The plugin signs the value then. When a `write` under another key
+name made the signing key first, the value reads `tampered`.
+
+A value that the plugin reaches but cannot verify is `tampered`, never an
+error. A person with root then cannot break the stored value to make the app
+switch to a weaker store.
+
+An error means the plugin could not run the command. A Keychain or Keystore
+call failed, a file write failed on Android, or the platform has no vault. A
+key name or a value that breaks the limits below is also an error.
+
+### The signing key
+
+The signing key signs with ECDSA on P-256 and SHA-256. The plugin makes it at
+the first `write`. After a signing key loss, it makes a new one at the next
+`write`, or at a `read` that finds a value whose signing key is gone. It tries
+these steps in order:
+
+1. iOS: a signing key in the Secure Enclave. Android 9 and later: one in
+   StrongBox.
+2. Android: a signing key in the trusted execution environment, or the
+   software Keystore on a phone without one. The system picks between the two.
+3. iOS without a Secure Enclave, such as the Simulator: a software signing key
+   kept as a Keychain item for this device only.
+4. No signing key can be made: the value is stored with no signature and the
+   state is `unsigned`.
+
+No step stops the app. The worst case is `unsigned`. The signing key needs no
+screen unlock, so a change of passcode does not lose it.
+
+A signing key that exists but cannot be used counts as gone. The plugin
+deletes it, and the next `read` answers `restored`. A Keychain or Keystore
+that cannot open is still an error.
+
+The signature covers the key name and the value. A signature cannot move from
+one key name to another.
+
+### Where a value lives
+
+- **iOS:** one Keychain item for each key name. The item is "after first
+  unlock, this device only" and never synchronized. iOS keeps Keychain items
+  after the app is deleted. Apple does not document this, so read a missing
+  value as a fresh install.
+- **Android:** one file for each key name, `vault/<key name>.json` in the app's
+  private files folder. Auto Backup includes the file, unless the app's backup
+  rules exclude it. Auto Backup never includes a Keystore signing key. A
+  restored file therefore arrives without its signing key. The first read
+  after a restore answers `restored` and signs the value again.
+
+### Limits
+
+- One signing key serves the whole app, and every key name shares it. After a
+  signing key loss, the first key name read answers `restored` and signs only
+  that value. Every other key name reads `tampered`. Keep one key name for each
+  app, or expect `tampered` for the other key names.
+- A read that finds a value whose signing key is gone makes a new signing key.
+  When the signing or the save that follows fails, that read is an error. The
+  next read answers `tampered`.
+- A `write` that fails after it makes the first signing key is also an error.
+  The signing key stays.
+- A value is at most 64 KiB of UTF-8 text.
+- A key name is 1 to 64 ASCII letters, digits, `.`, `-` or `_`.
+- The plugin works on iOS 14 or later and on Android 8 (API 26) or later.
+  On any other platform both commands answer an error.
+
+### Setup (Rust)
+
+```toml
+tauri-plugin-vault = "=0.1.0-alpha.1"
+```
+
+```rust
+app.handle().plugin(tauri_plugin_vault::init())?;
+```
+
+Add `vault:default` to a capability. It allows `read` and `write`.
+
+### Use (TypeScript)
+
+```ts
+import { invoke } from "@tauri-apps/api/core";
+
+type State = "empty" | "verified" | "restored" | "tampered" | "unsigned";
+
+const { state } = await invoke<{ state: State }>("plugin:vault|write", {
+  key: "record",
+  value: JSON.stringify(record),
+});
+const { value, state: checked } = await invoke<{
+  value: string | null;
+  state: State;
+}>("plugin:vault|read", { key: "record" });
+```
+
 ## `tauri-plugin-purchase`
 
 Buys and restores one-time purchases, and sells consumables, through the phone's own store:
