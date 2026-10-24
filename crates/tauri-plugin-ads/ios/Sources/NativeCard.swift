@@ -147,7 +147,12 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     hidden = true
     card?.isHidden = true
     clip.isHidden = true
-    ride.isHidden = true
+    // Out of the page's scroll view, not only hidden: a view WebKit did not make
+    // there, even hidden, kept every sideways row on the next screen from
+    // taking a swipe. `place` puts it back for the next show.
+    ride.removeFromSuperview()
+    scrolled = nil
+    riding = nil
   }
 
   func adLoader(_ adLoader: AdLoader, didReceive nativeAd: NativeAd) {
@@ -256,7 +261,7 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     } else {
       scrolled = nil
       riding = nil
-      ride.isHidden = true
+      ride.removeFromSuperview()
       let top = CGFloat(slot.clipTop ?? 0)
       let bottom = CGFloat(slot.clipBottom ?? Double(web.bounds.height))
       if clip.superview !== web { web.addSubview(clip) }
@@ -288,8 +293,17 @@ class NativeCard: NSObject, NativeAdLoaderDelegate, NativeAdDelegate {
     let top = CGFloat(slot.clipTop ?? Double(shown))
     let bottom = CGFloat(slot.clipBottom ?? Double(shown + scroller.bounds.height))
     let y = scroller.contentOffset.y + top - shown
-    ride.frame = CGRect(x: 0, y: y, width: scroller.bounds.width, height: max(0, bottom - top))
-    card.frame = CGRect(x: slot.x, y: slot.y - y, width: slot.w, height: slot.h)
+    let band = CGRect(x: 0, y: y, width: scroller.bounds.width, height: max(0, bottom - top))
+    let place = CGRect(x: slot.x, y: slot.y, width: slot.w, height: slot.h)
+    // The clip covers the card's visible part only. Over the whole visible page,
+    // WebKit handed a swipe on a sideways row under it to the page instead.
+    let seen = band.intersection(place)
+    if seen.isNull || seen.isEmpty {
+      ride.frame = .zero
+      return
+    }
+    ride.frame = seen
+    card.frame = CGRect(x: place.minX - seen.minX, y: place.minY - seen.minY, width: slot.w, height: slot.h)
   }
 
   private func hold(over web: WKWebView) {
