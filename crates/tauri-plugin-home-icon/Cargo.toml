@@ -1,0 +1,27 @@
+[package]
+name = "tauri-plugin-home-icon"
+description = "Tauri plugin that reads and changes the home-screen icon on iOS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-home-icon"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "ios", "android", "icon"]
+categories = ["gui"]
+links = "tauri-plugin-home-icon"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
