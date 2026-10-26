@@ -1,0 +1,3 @@
+[default]
+description = "Read the home-screen icon, and change it"
+permissions = ["allow-supported", "allow-current", "allow-set"]

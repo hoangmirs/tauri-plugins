@@ -2815,6 +2815,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-home-icon"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-keep"
 version = "0.1.0-alpha.1"
 dependencies = [

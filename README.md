@@ -414,6 +414,62 @@ await keepAwake(true);
 await keepAwake(false);
 ```
 
+## `tauri-plugin-home-icon`
+
+Reads and changes the icon a phone shows for the app on its home screen. The
+plugin speaks the system's own names: on iOS a name is one of the app's
+alternate icons, and `null` is the primary icon. The app maps its own choices
+onto those names.
+
+Only iOS changes the icon for now. Everywhere else `supported` answers
+`false`, `current` answers `null` and `set` fails. On Android a change needs
+one `<activity-alias>` for each icon in the manifest. That manifest reaches
+every user in the update, and some launchers then drop or move the
+home-screen icon with no tap from the user. Android gets its own release
+after checks on real launchers.
+
+UIKit reads and changes the icon only on the main thread, so the Swift side
+runs each call there. iOS shows its own alert after a change. The app needs no
+words of its own for a success.
+
+The system is the one record of the icon in use. Read `current` each time a
+screen shows the choice: a restore to a new phone or a reinstall can change it.
+
+### The icons in the Xcode project
+
+Each alternate icon is an icon file or an app icon set in the app target.
+Its name is the one the app passes to `set`, for example `AppIcon-dark`.
+Then set these on the target:
+
+```yaml
+ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIcon-dark AppIcon-paper
+ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
+```
+
+Xcode then writes `CFBundleAlternateIcons` into the app's `Info.plist`. A
+name that is not listed there fails `set`.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_home_icon::init())?;
+```
+
+Add `home-icon:default` to a capability.
+
+### Use (TypeScript)
+
+```ts
+import { invoke } from "@tauri-apps/api/core";
+
+if (await invoke<boolean>("plugin:home-icon|supported")) {
+  const name = await invoke<string | null>("plugin:home-icon|current");
+  await invoke("plugin:home-icon|set", { name: "AppIcon-dark" });
+  await invoke("plugin:home-icon|set", { name: null }); // the primary icon
+}
+```
+
 ## `tauri-plugin-keep`
 
 Keeps a few small text values on an iPhone or iPad after the app is deleted,
