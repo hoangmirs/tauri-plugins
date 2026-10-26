@@ -21,6 +21,12 @@ fn the_readme_setup_compiles_against_the_public_api() {
     let _own = init::<tauri::test::MockRuntime>(
         Config::new("phc_test").host("https://posthog.example.com"),
     );
+    let _slow = init::<tauri::test::MockRuntime>(
+        Config::new("phc_test").flush_every(std::time::Duration::from_secs(120)),
+    );
+    let _zero = init::<tauri::test::MockRuntime>(
+        Config::new("phc_test").flush_every(std::time::Duration::ZERO),
+    );
 }
 
 /// A mock app has no capability files, so grant every command to every

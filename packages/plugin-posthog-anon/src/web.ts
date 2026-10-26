@@ -15,17 +15,20 @@
 
 /** What a caller passes to {@link init}. `host` defaults to `PostHog`'s US
  * cloud; `appVersion` — the app's own version, not this package's — is
- * omitted from events when not given. */
+ * omitted from events when not given. `flushEveryMs` is how often the timer
+ * sends, 30 000 by default and never under 1 000. */
 export type WebConfig = {
   apiKey: string;
   host?: string;
   appVersion?: string;
+  flushEveryMs?: number;
 };
 
 type Config = {
   apiKey: string;
   host: string;
   appVersion?: string;
+  flushEveryMs: number;
 };
 
 /** One event as it sits in the queue: already fully shaped, since the web
@@ -45,7 +48,7 @@ const LIB_NAME = "tauri-plugin-posthog-anon-web";
  * `resolveJsonModule` plumbing that fights the `node --experimental-strip-types`
  * runner this package's tests run under, so a test instead asserts this
  * constant equals `package.json`'s `version`. */
-const LIB_VERSION = "0.1.0-alpha.1";
+const LIB_VERSION = "0.1.0-alpha.2";
 
 const DEFAULT_HOST = "https://us.i.posthog.com";
 
@@ -66,8 +69,12 @@ const IDENTITY_PROPERTIES = new Set(["$set", "$set_once", "$unset", "$groups", "
  * `flush_at`. */
 const FLUSH_AT = 20;
 
-/** How often the lazily-started timer flushes while the page is open. */
+/** How often the lazily-started timer flushes while the page is open, unless
+ * `init` names another wait — mirrors the Rust `Config::flush_every`. */
 const FLUSH_EVERY_MS = 30_000;
+
+/** The shortest wait `flushEveryMs` takes — mirrors `MIN_FLUSH_EVERY`. */
+const MIN_FLUSH_EVERY_MS = 1_000;
 
 /** The most events a single request carries — mirrors `send::BATCH`. */
 const MAX_BATCH = 100;
@@ -171,6 +178,7 @@ export function init(webConfig: WebConfig): void {
   config = {
     apiKey: webConfig.apiKey,
     host: webConfig.host ?? DEFAULT_HOST,
+    flushEveryMs: flushEveryOf(webConfig.flushEveryMs),
     ...(webConfig.appVersion !== undefined ? { appVersion: webConfig.appVersion } : {}),
   };
   try {
@@ -179,6 +187,13 @@ export function init(webConfig: WebConfig): void {
   } catch {
     // a throwing localStorage leaves nothing to send
   }
+}
+
+/** The timer's wait: the default when none is given or it is not a finite
+ * number, and never under {@link MIN_FLUSH_EVERY_MS}. */
+function flushEveryOf(ms: number | undefined): number {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return FLUSH_EVERY_MS;
+  return Math.max(ms, MIN_FLUSH_EVERY_MS);
 }
 
 /** `navigator.language`, when there is a `navigator` with one — never
@@ -366,7 +381,7 @@ function ensureTimer(): void {
   if (timer !== undefined) return;
   timer = setInterval(() => {
     void performFlush(false);
-  }, FLUSH_EVERY_MS);
+  }, config?.flushEveryMs ?? FLUSH_EVERY_MS);
   unref(timer);
 }
 
@@ -495,10 +510,21 @@ function performFlush(keepalive: boolean): Promise<void> {
   return attempt;
 }
 
-/** Sends whatever is queued now. Never rejects: a failed or throwing
- * `fetch` (or `localStorage`) leaves the queue as it was. */
+/** Sends whatever is queued now. While the page is hidden it sends as the
+ * `pagehide` flush does, with `keepalive`, since a browser may freeze the
+ * page before an ordinary request answers. Never rejects: a failed or
+ * throwing `fetch` (or `localStorage`) leaves the queue as it was. */
 export async function flush(): Promise<void> {
-  await performFlush(false);
+  await performFlush(pageHidden());
+}
+
+/** Whether the page is hidden now. False with no `document`. */
+function pageHidden(): boolean {
+  try {
+    return typeof document !== "undefined" && document.visibilityState === "hidden";
+  } catch {
+    return false;
+  }
 }
 
 /** Opts the install out (clearing anything queued) or back in, and

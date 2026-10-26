@@ -580,6 +580,88 @@ test("the periodic timer flushes every 30 seconds", async (t) => {
   }
 });
 
+test("the periodic timer waits flushEveryMs when init names it", async (t) => {
+  await setupWeb();
+  const calls = setupFetch(() => ok());
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    init({ apiKey: "phc_test", flushEveryMs: 120_000 });
+    await track("a");
+
+    t.mock.timers.tick(30_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 0, "30 s is not yet the 120 s the caller asked for");
+
+    t.mock.timers.tick(90_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("flushEveryMs under one second waits one second", async (t) => {
+  await setupWeb();
+  const calls = setupFetch(() => ok());
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    init({ apiKey: "phc_test", flushEveryMs: 0 });
+    await track("a");
+
+    t.mock.timers.tick(999);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 0);
+
+    t.mock.timers.tick(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+  } finally {
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, flush while the page is hidden sends with keepalive", async () => {
+  await setupWeb();
+  const calls = setupFetch(() => ok());
+  (globalThis as Globals).document = { visibilityState: "hidden" };
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    await flush();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.init.keepalive, true);
+  } finally {
+    delete (globalThis as Globals).document;
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
+test("on the web, flush while the page is visible sends without keepalive", async () => {
+  await setupWeb();
+  const calls = setupFetch(() => ok());
+  (globalThis as Globals).document = { visibilityState: "visible" };
+  try {
+    init({ apiKey: "phc_test" });
+    await track("a");
+    await flush();
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.init.keepalive, false);
+  } finally {
+    delete (globalThis as Globals).document;
+    await teardownWeb();
+    teardownFetch();
+  }
+});
+
 test("on the web, pagehide flushes with fetch keepalive: true", async () => {
   await setupWeb();
   const calls = setupFetch(() => ok());

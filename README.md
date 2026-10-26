@@ -197,7 +197,10 @@ tauri::Builder::default()
 
 `Config::new(key)` defaults to PostHog's US cloud; `.eu()` switches to the
 EU cloud, `.us()` back to US, and `.host(url)` points at a self-hosted
-instance or a reverse proxy. TLS is verified against the Mozilla root
+instance or a reverse proxy. `.flush_every(duration)` sets how often the
+queue is sent, 30 seconds by default and never under 1 second. A longer
+wait puts more events in each request, for an app whose events come one
+at a time. TLS is verified against the Mozilla root
 bundle compiled into the plugin, not the OS store — same as update-gate,
 and for the same reason: the platform verifier needs JNI set up on
 Android, which a plugin with no native code cannot do, and panics without
@@ -222,17 +225,21 @@ await setOptOut(true);
 await isOptedOut(); // false once opted back in
 ```
 
-- `init({ apiKey, host?, appVersion? })` — **web only.** Under Tauri it's a
+- `init({ apiKey, host?, appVersion?, flushEveryMs? })` — **web only.** Under Tauri it's a
   no-op, since Rust already holds its own config from `Config` at plugin
   `init`; `host` defaults to PostHog's US cloud, and `appVersion` (the
   app's own version, not the package's) feeds `$app_version` on events sent
   from the web — without it, web events carry no `$app_version` at all.
+  `flushEveryMs` is the web's `flush_every`: 30 000 by default, never under
+  1 000.
   If an earlier page left events queued, `init` starts sending them.
 - `track(event, properties?)` — queues an event, the same shape whichever
   side sends it, so PostHog can't tell.
 - `flush()` — asks for a flush now. Under Tauri it returns as soon as the
   worker has been asked, without waiting for the network; on the web it
-  awaits the request itself.
+  awaits the request itself. On a hidden page it sends like the `pagehide`
+  flush, with `keepalive`, so an app can call it as it goes to the
+  background.
 - `setOptOut(out)` — opts the install out or back in.
 - `isOptedOut()` — the install's current opt-out state.
 
@@ -250,7 +257,8 @@ events are dropped to make room; a single event whose own serialized size
 is already over the 1 MB limit is refused outright, since eviction can
 only make room by dropping *other* events.
 
-A flush is triggered when **20 events** are waiting, every **30 seconds**,
+A flush is triggered when **20 events** are waiting, every **30 seconds**
+(or the app's `flush_every` / `flushEveryMs`),
 once on launch (on the web, at `init`), best-effort on app exit (waited
 for at most **2 seconds**; whatever hasn't sent by then stays queued for
 next launch), and — web only — on `pagehide`. Each request carries at most

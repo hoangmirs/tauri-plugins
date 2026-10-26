@@ -28,9 +28,12 @@ const CHANNEL: usize = 1_024;
 /// The longest exit ever waits for a last flush.
 const EXIT_WAIT: Duration = Duration::from_secs(2);
 
-/// Which `PostHog` project to send to, and where. Everything else — when to
-/// flush, how much to keep on disk — has the plan's defaults and is not
-/// configurable yet.
+/// The shortest wait [`Config::flush_every`] accepts. A zero period would
+/// panic the worker's timer.
+const MIN_FLUSH_EVERY: Duration = Duration::from_secs(1);
+
+/// Which `PostHog` project to send to, where, and how often to send. How
+/// much to keep on disk has the plan's defaults and is not configurable yet.
 pub struct Config {
     api_key: String,
     host: String,
@@ -68,6 +71,15 @@ impl Config {
     #[must_use]
     pub fn host(mut self, url: impl Into<String>) -> Self {
         self.host = url.into();
+        self
+    }
+
+    /// Sends what is queued this often, 30 seconds by default, raised to 1
+    /// second if shorter. A longer wait puts more events in each request.
+    /// Twenty queued events, launch and exit still send at once.
+    #[must_use]
+    pub fn flush_every(mut self, every: Duration) -> Self {
+        self.flush_every = every.max(MIN_FLUSH_EVERY);
         self
     }
 }
@@ -163,4 +175,28 @@ async fn set_opt_out(handle: Managed<'_, Handle>, out: bool) -> Result<(), Strin
 #[tauri::command]
 async fn is_opted_out(handle: Managed<'_, Handle>) -> Result<bool, String> {
     Ok(handle.is_opted_out())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, Duration};
+
+    #[test]
+    fn flush_every_defaults_to_30_seconds_and_takes_a_longer_wait() {
+        assert_eq!(Config::new("k").flush_every, Duration::from_secs(30));
+        assert_eq!(
+            Config::new("k")
+                .flush_every(Duration::from_secs(120))
+                .flush_every,
+            Duration::from_secs(120)
+        );
+    }
+
+    #[test]
+    fn flush_every_never_goes_under_one_second() {
+        assert_eq!(
+            Config::new("k").flush_every(Duration::ZERO).flush_every,
+            Duration::from_secs(1)
+        );
+    }
 }
