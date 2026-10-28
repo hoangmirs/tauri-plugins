@@ -1,6 +1,6 @@
 {
   "name": "tauri-plugin-posthog-anon-api",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Framework-neutral TypeScript facade for tauri-plugin-posthog-anon, on Tauri and on the plain web",
   "keywords": [
     "tauri",

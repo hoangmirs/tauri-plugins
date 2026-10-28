@@ -48,7 +48,7 @@ const LIB_NAME = "tauri-plugin-posthog-anon-web";
  * `resolveJsonModule` plumbing that fights the `node --experimental-strip-types`
  * runner this package's tests run under, so a test instead asserts this
  * constant equals `package.json`'s `version`. */
-const LIB_VERSION = "0.1.0-alpha.2";
+const LIB_VERSION = "0.1.0-alpha.3";
 
 const DEFAULT_HOST = "https://us.i.posthog.com";
 
@@ -431,8 +431,8 @@ export async function track(event: string, properties?: Record<string, unknown>)
  * request body stays within `maxBytes` — measured once per event rather
  * than by re-encoding the whole body, since `JSON.stringify` joins an
  * array's items with bare commas. */
-function batchWithin(apiKey: string, waiting: QueuedEvent[], maxBytes: number): QueuedEvent[] {
-  let size = utf8Length(JSON.stringify({ api_key: apiKey, batch: [] }));
+function batchWithin(apiKey: string, sentAt: string, waiting: QueuedEvent[], maxBytes: number): QueuedEvent[] {
+  let size = utf8Length(JSON.stringify({ api_key: apiKey, sent_at: sentAt, batch: [] }));
   let count = 0;
   for (const event of waiting.slice(0, MAX_BATCH)) {
     size += utf8Length(JSON.stringify(event)) + (count > 0 ? 1 : 0);
@@ -460,13 +460,16 @@ async function runFlush(keepalive: boolean): Promise<void> {
       if (readOptOut()) return;
       if (backoffReadyInMs() > 0) return; // still waiting out a previous failure
       const waiting = readQueue();
+      // This device's clock as the batch goes, as the Rust side's
+      // `batch_body` sends it: a server corrects a wrong clock with it.
+      const sentAt = new Date().toISOString();
       const batch = keepalive
-        ? batchWithin(config.apiKey, waiting, MAX_KEEPALIVE_BYTES)
+        ? batchWithin(config.apiKey, sentAt, waiting, MAX_KEEPALIVE_BYTES)
         : waiting.slice(0, MAX_BATCH);
       if (batch.length === 0) return;
 
       const url = `${config.host.replace(/\/+$/, "")}/batch/`;
-      const body = JSON.stringify({ api_key: config.apiKey, batch });
+      const body = JSON.stringify({ api_key: config.apiKey, sent_at: sentAt, batch });
 
       let response: Response;
       try {

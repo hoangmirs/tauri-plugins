@@ -5,7 +5,7 @@
 use std::io::Read;
 use std::time::{Duration, Instant};
 
-use crate::event::{batch_body, Base, Event};
+use crate::event::{batch_body, now_rfc3339, Base, Event};
 use crate::queue::Queue;
 
 /// The most events a single request carries.
@@ -130,7 +130,9 @@ pub fn flush(
             return Ok(sent);
         }
 
-        let body = batch_body(api_key, base, &batch);
+        // Taken for each attempt: a batch retried an hour later says so.
+        let sent_at = now_rfc3339();
+        let body = batch_body(api_key, base, &batch, sent_at.as_deref());
         post.post(&url, &body)?;
 
         queue
@@ -294,6 +296,31 @@ mod tests {
         assert_eq!(sent, 250);
         assert_eq!(post.batch_sizes(), vec![100, 100, 50]);
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn each_batch_says_when_it_was_sent_by_this_device_clock() {
+        let dir = tempfile::tempdir().unwrap();
+        let queue = Queue::open(dir.path().join("queue.jsonl"), Limits::default());
+        push_n(&queue, 1);
+        let post = FakePost::new(vec![Ok(())]);
+        let before = time::OffsetDateTime::now_utc();
+        flush(
+            &queue,
+            &post,
+            "https://us.i.posthog.com",
+            "k",
+            &base(),
+            &|| false,
+        )
+        .unwrap();
+        let bodies = post.bodies.lock().unwrap();
+        let sent_at = bodies[0]["sent_at"].as_str().unwrap();
+        let at =
+            time::OffsetDateTime::parse(sent_at, &time::format_description::well_known::Rfc3339)
+                .unwrap();
+        assert!(at >= before - time::Duration::seconds(1));
+        assert!(at <= time::OffsetDateTime::now_utc() + time::Duration::seconds(1));
     }
 
     #[test]
