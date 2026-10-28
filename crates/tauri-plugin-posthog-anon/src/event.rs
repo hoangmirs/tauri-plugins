@@ -62,7 +62,7 @@ impl Event {
             return None;
         }
 
-        let timestamp = OffsetDateTime::now_utc().format(&Rfc3339).ok()?;
+        let timestamp = now_rfc3339()?;
 
         Some(Event {
             uuid: Uuid::new_v4().to_string(),
@@ -83,7 +83,18 @@ pub struct Base {
     pub platform: &'static str,
 }
 
+/// Now, as RFC 3339 in UTC: the form of an event's `timestamp` and a batch's
+/// `sent_at`. `None` only if formatting fails, which a UTC time never does.
+#[must_use]
+pub fn now_rfc3339() -> Option<String> {
+    OffsetDateTime::now_utc().format(&Rfc3339).ok()
+}
+
 /// Builds a `PostHog` `/batch` request body for `events`, keyed to `api_key`.
+/// `sent_at` is this device's clock as the body is built. A server takes its
+/// own time less `sent_at` as the device clock's error, and moves each
+/// `timestamp` by it: a phone set an hour behind would otherwise file its
+/// events an hour early. `PostHog` reads it this way, and so can a proxy.
 /// Each event's properties are `base`'s properties, then the event's own,
 /// then `distinct_id` and `$process_person_profile: false` re-asserted last
 /// — so a caller can add its own properties, or even shadow most of the
@@ -92,7 +103,7 @@ pub struct Base {
 /// the capture-time values win here; merging again only fills in events
 /// queued before that.
 #[must_use]
-pub fn batch_body(api_key: &str, base: &Base, events: &[Event]) -> Value {
+pub fn batch_body(api_key: &str, base: &Base, events: &[Event], sent_at: Option<&str>) -> Value {
     let batch: Vec<Value> = events
         .iter()
         .map(|event| {
@@ -105,10 +116,14 @@ pub fn batch_body(api_key: &str, base: &Base, events: &[Event]) -> Value {
         })
         .collect();
 
-    json!({
+    let mut body = json!({
         "api_key": api_key,
         "batch": batch,
-    })
+    });
+    if let Some(sent_at) = sent_at {
+        body["sent_at"] = sent_at.into();
+    }
+    body
 }
 
 /// Merges an event's properties onto `base`'s the way `batch_body` promises:
@@ -198,7 +213,7 @@ mod tests {
             props.insert(key.into(), serde_json::json!({ "name": "someone" }));
         }
         props.insert("game".into(), "caro".into());
-        let body = batch_body("k", &base(), &[Event::new("x", props).unwrap()]);
+        let body = batch_body("k", &base(), &[Event::new("x", props).unwrap()], None);
         let p = body["batch"][0]["properties"].as_object().unwrap();
         for key in [
             "$set",
@@ -216,16 +231,24 @@ mod tests {
     fn the_body_carries_the_key_and_every_event_with_its_own_uuid_and_time() {
         let a = Event::new("room_created", Map::new()).unwrap();
         let b = Event::new("game_started", Map::new()).unwrap();
-        let body = batch_body("phc_test", &base(), &[a.clone(), b.clone()]);
+        let body = batch_body("phc_test", &base(), &[a.clone(), b.clone()], None);
         assert_eq!(body["api_key"], "phc_test");
         assert_eq!(body["batch"][0]["event"], "room_created");
         assert_eq!(body["batch"][0]["uuid"], a.uuid);
         assert_eq!(body["batch"][1]["timestamp"], b.timestamp);
+        assert!(body.get("sent_at").is_none());
+    }
+
+    #[test]
+    fn the_body_says_when_it_was_sent_when_given_a_time() {
+        let e = Event::new("x", Map::new()).unwrap();
+        let body = batch_body("k", &base(), &[e], Some("2026-10-28T12:00:00Z"));
+        assert_eq!(body["sent_at"], "2026-10-28T12:00:00Z");
     }
 
     #[test]
     fn every_event_is_anonymous_and_says_where_it_came_from() {
-        let body = batch_body("k", &base(), &[Event::new("x", Map::new()).unwrap()]);
+        let body = batch_body("k", &base(), &[Event::new("x", Map::new()).unwrap()], None);
         let p = &body["batch"][0]["properties"];
         assert_eq!(p["distinct_id"], "install-1");
         assert_eq!(p["$process_person_profile"], false);
@@ -242,7 +265,7 @@ mod tests {
         props.insert("$process_person_profile".into(), true.into());
         props.insert("game".into(), "caro".into());
         props.insert("$os".into(), "custom".into());
-        let body = batch_body("k", &base(), &[Event::new("x", props).unwrap()]);
+        let body = batch_body("k", &base(), &[Event::new("x", props).unwrap()], None);
         let p = &body["batch"][0]["properties"];
         assert_eq!(p["distinct_id"], "install-1");
         assert_eq!(p["$process_person_profile"], false);

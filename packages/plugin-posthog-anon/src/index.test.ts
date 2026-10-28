@@ -388,9 +388,11 @@ test("on the web, flush POSTs {api_key, batch} to {host}/batch/ and removes even
     assert.equal(calls[0]?.init.method, "POST");
     const headers = calls[0]?.init.headers as Record<string, string>;
     assert.equal(headers["Content-Type"], "application/json");
-    const body = JSON.parse(calls[0]?.init.body as string) as { api_key: string; batch: unknown[] };
+    const body = JSON.parse(calls[0]?.init.body as string) as { api_key: string; sent_at: string; batch: unknown[] };
     assert.equal(body.api_key, "phc_test");
     assert.equal(body.batch.length, 2);
+    // This device's clock as the batch went, for a server to correct a wrong clock by.
+    assert.ok(Math.abs(Date.parse(body.sent_at) - Date.now()) < 5000);
 
     assert.equal(queueOf(store).length, 0);
   } finally {

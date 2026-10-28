@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-posthog-anon"
 description = "Tauri plugin that sends anonymous analytics events to PostHog from a queue on disk"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

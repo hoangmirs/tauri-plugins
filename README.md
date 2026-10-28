@@ -274,6 +274,13 @@ minutes**; any successful send resets the backoff to zero. Because each
 event keeps the same `uuid` across retries, a batch that PostHog actually
 received but whose response was lost is simply de-duplicated on resend.
 
+Each event keeps the `timestamp` of the moment it was captured, by the
+device's clock. Each request also carries `sent_at`: the device's clock as
+that request is built, so a retry says when it was retried. PostHog takes
+its own time less `sent_at` as the device clock's error and moves every
+`timestamp` in the batch by it, so a device set an hour behind does not
+file its events an hour early. A proxy in front of PostHog can do the same.
+
 ### Opting out
 
 `setOptOut(true)` takes effect before the call returns: capture stops at
