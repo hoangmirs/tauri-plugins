@@ -8,6 +8,7 @@ members = [
   "crates/tauri-plugin-posthog-anon",
   "crates/tauri-plugin-purchase",
   "crates/tauri-plugin-remote-settings",
+  "crates/tauri-plugin-sign-in",
   "crates/tauri-plugin-silent-mode",
   "crates/tauri-plugin-store-review",
   "crates/tauri-plugin-update-gate",

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-google"
+description = "Enables the google command without any pre-configured scope."
+commands.allow = ["google"]
+
+[[permission]]
+identifier = "deny-google"
+description = "Denies the google command without any pre-configured scope."
+commands.deny = ["google"]

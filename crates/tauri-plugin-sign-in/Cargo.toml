@@ -1,0 +1,28 @@
+[package]
+name = "tauri-plugin-sign-in"
+description = "Tauri plugin that signs a player in with Google or Apple through the phone's own sheet, and answers the id token"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-sign-in"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "sign-in", "google", "apple"]
+categories = ["gui"]
+links = "tauri-plugin-sign-in"
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true

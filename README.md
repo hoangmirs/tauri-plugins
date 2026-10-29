@@ -761,6 +761,161 @@ parent approves and a refund both land while the app is away.
 - **Android:** purchases work only in an app installed from Google Play, for
   example from an internal test track, with a license tester account.
 
+## `tauri-plugin-sign-in`
+
+Signs a player in with Google or Apple through the phone's own sheet, and
+answers the provider's id token. A server checks the token, for example
+Better Auth's `POST /api/auth/sign-in/social` with `idToken`. The plugin
+checks no signature and keeps no session.
+
+| Platform | Google | Apple |
+|---|---|---|
+| iOS | `ASWebAuthenticationSession` with PKCE | `ASAuthorizationController` |
+| Android | Credential Manager | none |
+| Desktop and web | none | none |
+
+### Commands
+
+- `available` answers `{ google, apple }`: which sheets this platform has.
+- `google { clientId, iosClientId?, nonce?, silent? }` answers
+  `{ idToken, nonce? }`.
+- `apple { nonce }` answers `{ idToken, authorizationCode }`. It works on iOS
+  only.
+
+`google` and `apple` reject with `{ code, message }`. `code` is one of four
+words:
+
+- `cancelled`: the player closed the sheet.
+- `unavailable`: the platform has no sheet for this provider, or Credential
+  Manager finds no provider on the Android phone.
+- `no-account`: a silent sign-in found no account that chose this app before.
+  On Android, an interactive sign-in also answers `no-account` when the phone
+  has no Google account.
+- `failed`: anything else. `message` says what failed.
+
+### Google
+
+`clientId` is the web client id, the one the server knows. The plugin asks
+Google for the web client id as the token's `aud` on both platforms. iOS also
+needs `iosClientId`, the iOS client id of the same Google Cloud project. No
+live Google client tested the iOS `aud` yet, so let the server also accept
+the iOS client id.
+
+`nonce` goes into the token as it is. The answer's `nonce` is the nonce the
+token carries. Send the server the answer's `nonce`, not your own: a silent
+sign-in on iOS refreshes a token, and a refreshed token carries no nonce. A
+server that compares nonces, such as Better Auth, refuses that token when the
+request still has a nonce. The plugin refuses a token that carries a nonce
+other than the one it asked for.
+
+`silent: true` shows no sheet:
+
+- **iOS** trades the refresh token from the last interactive sign-in for a
+  new id token. The plugin keeps that refresh token in the Keychain, "after
+  first unlock, this device only". With no refresh token, or one Google
+  refused, `google` answers `no-account`.
+- **Android** asks Credential Manager for accounts that chose this app
+  before, with auto-select. One such account signs in with no tap. Two or more
+  show a chooser. None answers `no-account`.
+
+**Why iOS does not use the GoogleSignIn SDK.** The SDK runs the same
+`ASWebAuthenticationSession` sign-in with PKCE. It also brings AppAuth,
+GTMAppAuth, GTMSessionFetcher, AppCheckCore and GoogleUtilities. The Firebase
+and ads packages pin their own GoogleUtilities, and two pins can conflict. The
+SDK also needs the reversed client id as a URL scheme in `Info.plist`, and its
+resource bundle never reaches the app through Tauri's static Swift library.
+The plugin sends what the SDK sends: `audience` set to the web client id on
+the authorization and token requests, so the token's `aud` is the web client.
+The scope is `openid email`.
+
+### Apple
+
+`nonce` is the raw nonce. The plugin sends Apple its SHA-256 as lowercase hex,
+so the token carries the hash. Better Auth accepts the raw nonce or its
+SHA-256 hex. The plugin asks for the email scope only, never the name.
+
+`authorizationCode` is Apple's one-time code. A server swaps it for the
+refresh token it must revoke when the account is deleted.
+
+Apple has no silent sign-in: the sheet always shows. An iPhone with no Apple
+Account answers `failed` with Apple's code 1000, the same code as a build
+without the capability.
+
+### What the app adds
+
+- **Google Cloud:** a web client, an iOS client with the app's bundle id, and
+  an Android client with the app's package name and each signing SHA-1 (debug,
+  upload and Play's app signing key). The server accepts the web and iOS
+  client ids. Android tokens carry the web client id.
+- **Apple:** the Sign in with Apple capability on the App ID, and this key in
+  the iOS app's `.entitlements` file:
+
+  ```xml
+  <key>com.apple.developer.applesignin</key>
+  <array>
+    <string>Default</string>
+  </array>
+  ```
+
+- **`Info.plist`:** nothing. `ASWebAuthenticationSession` catches the reversed
+  iOS client id scheme without a `CFBundleURLTypes` entry.
+- **`AndroidManifest.xml`:** nothing. The plugin needs no permission.
+- **Android build:** `minSdk` 26.
+
+### Setup (Rust)
+
+```toml
+tauri-plugin-sign-in = "=0.1.0-alpha.1"
+```
+
+```rust
+app.handle().plugin(tauri_plugin_sign_in::init())?;
+```
+
+Add `sign-in:default` to a capability. It allows `available`, `google` and
+`apple`.
+
+### Use (TypeScript)
+
+```ts
+import { apple, available, google } from "tauri-plugin-sign-in-api";
+
+const sheets = await available(); // { google: true, apple: true } on iOS
+const g = await google({ clientId: WEB_ID, iosClientId: IOS_ID, nonce });
+// { idToken, nonce? }: send idToken and g.nonce to the server
+const a = await apple({ nonce }); // { idToken, authorizationCode }
+```
+
+`available` never rejects. Outside Tauri it answers no sheets, and `google`
+and `apple` reject with `unavailable`.
+
+### Testing
+
+Make a Tauri app that registers the plugin, with `sign-in:default` and a page
+that calls the three commands. Then:
+
+1. **iOS Simulator:** add the entitlement above and run the app. `available`
+   answers both. `google({ silent: true })` answers `no-account`. `google()`
+   shows "wants to use accounts.google.com to sign in", then Google's page.
+   Cancel answers `cancelled`. `apple()` shows Apple's sheet, or asks for an
+   Apple Account when the Simulator has none.
+2. **Android emulator:** use a Google APIs image with a Google account signed
+   in, and an Android client for the debug key's SHA-1. `available` answers
+   Google only. `apple()` answers `unavailable`.
+
+A real token needs the Google Cloud clients and the Apple capability above.
+With made-up client ids, Google's page answers `invalid_client`, and an
+emulator with no Google account answers `no-account`.
+
+### Limits
+
+- The plugin has no sign-out. On iOS the refresh token stays in the Keychain
+  until Google refuses it. On Android, auto-select stays on until the app
+  calls Credential Manager's `clearCredentialState`.
+- The Android side uses Credential Manager 1.5.0 and googleid 1.1.1. Later
+  versions carry Kotlin metadata that Tauri's Kotlin 1.9 template cannot read.
+- The plugin works on iOS 15 or later and on Android 8 (API 26) or later.
+
 ## `tauri-plugin-ads`
 
 Shows Google Mobile Ads on iOS and Android: a native ad drawn as a card over
