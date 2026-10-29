@@ -2883,6 +2883,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-sign-in"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-silent-mode"
 version = "0.1.0-alpha.1"
 dependencies = [

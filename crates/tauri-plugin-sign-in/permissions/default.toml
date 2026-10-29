@@ -1,0 +1,7 @@
+[default]
+description = "Read which providers the phone can show, and sign in with Google or Apple"
+permissions = [
+  "allow-available",
+  "allow-google",
+  "allow-apple",
+]
