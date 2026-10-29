@@ -803,8 +803,10 @@ the iOS client id.
 
 `nonce` goes into the token as it is. The answer's `nonce` is the nonce the
 token carries. Send the server the answer's `nonce`, not your own: a silent
-sign-in on iOS refreshes a token, and a refreshed token carries no nonce. The
-plugin refuses a token that carries a nonce other than the one it asked for.
+sign-in on iOS refreshes a token, and a refreshed token carries no nonce. A
+server that compares nonces, such as Better Auth, refuses that token when the
+request still has a nonce. The plugin refuses a token that carries a nonce
+other than the one it asked for.
 
 `silent: true` shows no sheet:
 
