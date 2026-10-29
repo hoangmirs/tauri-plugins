@@ -7,6 +7,7 @@ Read which providers the phone can show, and sign in with Google or Apple
 - `allow-available`
 - `allow-google`
 - `allow-apple`
+- `allow-web`
 
 ## Permission Table
 
@@ -91,6 +92,32 @@ Enables the google command without any pre-configured scope.
 <td>
 
 Denies the google command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sign-in:allow-web`
+
+</td>
+<td>
+
+Enables the web command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sign-in:deny-web`
+
+</td>
+<td>
+
+Denies the web command without any pre-configured scope.
 
 </td>
 </tr>

@@ -96,12 +96,28 @@ async fn apple<R: Runtime>(app: AppHandle<R>, nonce: String) -> Result<Value, co
     core::apple_answer(&answer)
 }
 
+/// Spike, Android only: opens `url` in an Auth Tab and answers `{ url }`, the
+/// address that ended on `scheme`.
+#[tauri::command]
+async fn web<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+    scheme: String,
+) -> Result<Value, core::Error> {
+    native(
+        &app,
+        "web",
+        serde_json::json!({ "url": url, "scheme": scheme }),
+    )
+    .await
+}
+
 /// Registers the plugin: the Swift side on iOS, the Kotlin side on Android,
 /// and commands that reject with `unavailable` everywhere else.
 #[must_use]
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("sign-in")
-        .invoke_handler(tauri::generate_handler![available, google, apple])
+        .invoke_handler(tauri::generate_handler![available, google, apple, web])
         .setup(|_app, _api| {
             #[cfg(mobile)]
             {

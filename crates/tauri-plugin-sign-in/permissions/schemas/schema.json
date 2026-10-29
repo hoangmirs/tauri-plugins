@@ -331,10 +331,22 @@
           "markdownDescription": "Denies the google command without any pre-configured scope."
         },
         {
-          "description": "Read which providers the phone can show, and sign in with Google or Apple\n#### This default permission set includes:\n\n- `allow-available`\n- `allow-google`\n- `allow-apple`",
+          "description": "Enables the web command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-web",
+          "markdownDescription": "Enables the web command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the web command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-web",
+          "markdownDescription": "Denies the web command without any pre-configured scope."
+        },
+        {
+          "description": "Read which providers the phone can show, and sign in with Google or Apple\n#### This default permission set includes:\n\n- `allow-available`\n- `allow-google`\n- `allow-apple`\n- `allow-web`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read which providers the phone can show, and sign in with Google or Apple\n#### This default permission set includes:\n\n- `allow-available`\n- `allow-google`\n- `allow-apple`"
+          "markdownDescription": "Read which providers the phone can show, and sign in with Google or Apple\n#### This default permission set includes:\n\n- `allow-available`\n- `allow-google`\n- `allow-apple`\n- `allow-web`"
         }
       ]
     }

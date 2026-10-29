@@ -28,4 +28,6 @@ dependencies {
   implementation("androidx.credentials:credentials:1.5.0")
   implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
   implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+  // Spike: Apple on Android through an Auth Tab.
+  implementation("androidx.browser:browser:1.9.0")
 }

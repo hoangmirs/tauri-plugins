@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["available", "google", "apple"];
+const COMMANDS: &[&str] = &["available", "google", "apple", "web"];
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS)

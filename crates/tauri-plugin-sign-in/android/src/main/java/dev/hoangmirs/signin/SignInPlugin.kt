@@ -1,6 +1,11 @@
 package dev.hoangmirs.signin
 
 import android.app.Activity
+import android.net.Uri
+import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.auth.AuthTabIntent
 import android.os.CancellationSignal
 import androidx.credentials.CredentialManager
 import androidx.credentials.CredentialManagerCallback
@@ -22,6 +27,12 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import java.util.concurrent.Executor
+
+@InvokeArg
+class WebArgs {
+  var url: String = ""
+  var scheme: String = ""
+}
 
 @InvokeArg
 class GoogleArgs {
@@ -93,5 +104,37 @@ class SignInPlugin(private val activity: Activity) : Plugin(activity) {
         }
       },
     )
+  }
+
+  // Spike: a sign-in on the provider's web page, in an Auth Tab that hands
+  // back the URL it ends on. Chrome before 137 opens a Custom Tab instead, and
+  // the result is then cancelled: the app must catch the link itself.
+  private var webOpen: Invoke? = null
+  private var webLauncher: ActivityResultLauncher<android.content.Intent>? = null
+
+  @Command
+  fun web(invoke: Invoke) {
+    val args = invoke.parseArgs(WebArgs::class.java)
+    val owner = activity as? ComponentActivity
+      ?: return reject(invoke, "unavailable", "The activity cannot start an Auth Tab")
+    activity.runOnUiThread {
+      webOpen?.let { reject(it, "cancelled", "Another web sign-in started") }
+      webOpen = invoke
+      // The registry, not registerForActivityResult: a plugin loads after its
+      // activity started, and a lifecycle owner then refuses to register.
+      val launcher = webLauncher ?: owner.activityResultRegistry.register(
+        "sign-in-web", ActivityResultContracts.StartActivityForResult()
+      ) { result ->
+        val open = webOpen ?: return@register
+        webOpen = null
+        val back = result.data?.data
+        if (result.resultCode == AuthTabIntent.RESULT_OK && back != null) {
+          open.resolve(JSObject().put("url", back.toString()))
+        } else {
+          reject(open, "cancelled", "The web sign-in ended with ${result.resultCode}")
+        }
+      }.also { webLauncher = it }
+      AuthTabIntent.Builder().build().launch(launcher, Uri.parse(args.url), args.scheme)
+    }
   }
 }
