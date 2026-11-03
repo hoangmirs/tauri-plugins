@@ -1,0 +1,3 @@
+[default]
+description = "Open the phone's share sheet for one file"
+permissions = ["allow-share"]

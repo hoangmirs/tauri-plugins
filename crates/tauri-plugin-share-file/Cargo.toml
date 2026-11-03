@@ -1,0 +1,27 @@
+[package]
+name = "tauri-plugin-share-file"
+description = "Tauri plugin that opens Android's share sheet for one file"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-share-file"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "android", "share"]
+categories = ["gui"]
+links = "tauri-plugin-share-file"
+
+[dependencies]
+serde.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true
