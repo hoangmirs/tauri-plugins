@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Its own class and authority: two providers that share a class name
+         clash when the app's manifest merges, and the app declares
+         androidx.core's FileProvider already. -->
+    <provider
+      android:name="dev.hoangmirs.sharefile.ShareFileProvider"
+      android:authorities="${applicationId}.sharefile"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/share_file_paths" />
+    </provider>
+  </application>
+</manifest>

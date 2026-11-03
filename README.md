@@ -429,6 +429,62 @@ await keepAwake(true);
 await keepAwake(false);
 ```
 
+## `tauri-plugin-share-file`
+
+Opens Android's share sheet for one file, such as a picture the app drew.
+Android's system web view has no `navigator.share`, so a page there cannot
+hand a file to another app. iOS and desktop web views have
+`navigator.share`, and there the command answers `"unsupported"`.
+
+### What the plugin does on Android
+
+1. It writes the file to the app's cache, in a `share-file` folder. The
+   folder is cleared before each write, not after a share: the app the
+   player picked may still be reading the last file.
+2. It opens the system share sheet with `ACTION_SEND`. The file goes out
+   through the plugin's own `FileProvider` (`<applicationId>.sharefile`),
+   with read access for the app the player picks. It has its own class, so
+   it does not clash with a `FileProvider` the app declares already.
+3. It answers `"shared"` when the player picks an app, and `"cancelled"`
+   when the sheet closes without a pick. `"shared"` means only that the
+   player picked an app. The plugin cannot tell whether that app sent
+   anything.
+
+The command needs no permission from the player.
+
+### Limits
+
+- `data` is the file as base64, with no `data:` prefix. It is at most
+  20 MB once decoded.
+- `name` is the file name the other app sees, such as `story.png`. It has
+  no `/`, no `\` and no `..`.
+- `mime` is the file's type, such as `image/png`.
+- A call that breaks a limit is an error on every platform.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_share_file::init())?;
+```
+
+Add `share-file:default` to a capability. It allows `share`.
+
+### Use (TypeScript)
+
+```ts
+import { invoke } from "@tauri-apps/api/core";
+
+const { outcome } = await invoke<{
+  outcome: "shared" | "cancelled" | "unsupported";
+}>("plugin:share-file|share", {
+  data: base64, // no "data:image/png;base64," prefix
+  name: "story.png",
+  mime: "image/png",
+  title: "Share your story", // optional; some Android versions do not show it
+});
+if (outcome === "unsupported") await navigator.share({ files: [file] });
+```
+
 ## `tauri-plugin-home-icon`
 
 Reads and changes the icon a phone shows for the app on its home screen. The
