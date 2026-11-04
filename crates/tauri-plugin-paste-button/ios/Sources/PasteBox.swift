@@ -81,6 +81,7 @@ final class PasteBox {
     let parent = control?.superview
     control?.removeFromSuperview()
     parent?.addSubview(made)
+    made.addSubview(receiver)
     control = made
     self.look = look
   }
@@ -217,17 +218,25 @@ private struct Look: Equatable {
 /// first item as text. An empty or unreadable paste sends "", so the page can
 /// say there was nothing to paste.
 @available(iOS 16.0, *)
-private final class Receiver: NSObject, UIPasteConfigurationSupporting {
+private final class Receiver: UIView {
   private let send: (String) -> Void
-
-  var pasteConfiguration: UIPasteConfiguration? = UIPasteConfiguration(
-    acceptableTypeIdentifiers: [UTType.plainText.identifier, UTType.text.identifier, UTType.url.identifier])
 
   init(send: @escaping (String) -> Void) {
     self.send = send
+    super.init(frame: .zero)
+    // A responder, not a plain object: the control asks its target whether it
+    // can paste, and stayed greyed out and dead with a plain NSObject.
+    pasteConfiguration = UIPasteConfiguration(
+      acceptableTypeIdentifiers: [UTType.plainText.identifier, UTType.text.identifier, UTType.url.identifier])
+    isHidden = true
+    isUserInteractionEnabled = false
   }
 
-  func paste(itemProviders: [NSItemProvider]) {
+  required init?(coder: NSCoder) { nil }
+
+  override func canPaste(_ itemProviders: [NSItemProvider]) -> Bool { true }
+
+  override func paste(itemProviders: [NSItemProvider]) {
     let done: (String) -> Void = { [send] text in DispatchQueue.main.async { send(text) } }
     guard let first = itemProviders.first else {
       done("")
