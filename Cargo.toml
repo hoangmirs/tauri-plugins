@@ -5,6 +5,7 @@ members = [
   "crates/tauri-plugin-home-icon",
   "crates/tauri-plugin-keep",
   "crates/tauri-plugin-keep-awake",
+  "crates/tauri-plugin-paste-button",
   "crates/tauri-plugin-posthog-anon",
   "crates/tauri-plugin-purchase",
   "crates/tauri-plugin-remote-settings",

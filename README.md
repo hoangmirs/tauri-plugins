@@ -541,6 +541,98 @@ if (await invoke<boolean>("plugin:home-icon|supported")) {
 }
 ```
 
+## `tauri-plugin-paste-button`
+
+Lays the system paste button over an empty box the page draws, and sends the
+page the text it pasted. The button is iOS's `UIPasteControl`. One tap pastes,
+with no "Allow Paste?" alert.
+
+A page in an iOS web view has two worse ways to paste.
+`navigator.clipboard.readText()` makes the web view show its own "Paste"
+bubble, so the player taps twice. A native read of the pasteboard shows the
+"Allow Paste?" alert.
+
+Only iOS 16 and later have the button. Everywhere else `supported` answers
+`{ supported: false }`, and `place` and `hide` do nothing. Keep the page's own
+way to paste for those.
+
+### Commands
+
+- `supported` answers `{ supported: boolean }`.
+- `place` shows the button over the box, or moves it when it shows already.
+  Send it again each time the box moves or changes size. All numbers are CSS
+  pixels of the page:
+  - `x`, `y`: the box's place in its scroll box's content.
+  - `vx`, `vy`: the box's place on screen now.
+  - `w`, `h`: the box's size. The button takes the whole box.
+  - `scrollHeight`: the scroll box's content height.
+  - `clipTop`, `clipBottom` (optional): the part of the scroll box that no bar
+    covers. A bar the page pins inside the box, such as a top bar, lies
+    outside it. The plugin cuts the button to it.
+  - `tint`: the button's fill, as `#rrggbb` or `#rrggbbaa`.
+  - `ink`: the icon and the word, in the same form.
+  - `radius`: the corner radius.
+  - `label`: `true` for the icon and the system's word, `false` for the icon
+    alone. iOS writes the word in the phone's language.
+- `hide` takes the button away.
+- The `paste` event carries `{ text: string }`. The plugin reads the first
+  item as text, or a link as its address. An empty or unreadable item sends
+  `{ text: "" }`, so the app can say that there was nothing to paste.
+
+iOS makes the button and decides its look inside the box. It greys the
+button out while the clipboard holds no text and no link.
+
+### Taps and scrolling
+
+The button works the way `tauri-plugin-ads` places its native card:
+
+- **Scroll.** The button rides inside the web view's scroll view for the
+  page's scroll box, so it scrolls with the page and never lags. A box that
+  does not overflow has no scroll view of its own. The button then sits over
+  the page, cut to `clipTop` and `clipBottom`.
+- **Taps.** The web view's own hit test never returns a view it did not
+  make, so a tap would reach the page and never the button. A clear view over
+  the web view hands a tap on the button's visible part to the button. It
+  takes no other touch. The web view can also send that tap to the page, so
+  the box must react to no tap.
+- **Hide.** `hide` takes the button out of the scroll view, not only out of
+  sight. A hidden view there kept sideways rows on the next screen from
+  taking a swipe.
+- **One button.** The plugin has one button. Show one box at a time.
+
+### Setup (Rust)
+
+```rust
+app.handle().plugin(tauri_plugin_paste_button::init())?;
+```
+
+Add `paste-button:default` to a capability. It allows `supported`, `place`,
+`hide` and the `paste` event.
+
+### Use (TypeScript)
+
+```ts
+import { addPluginListener, invoke } from "@tauri-apps/api/core";
+
+const { supported } = await invoke<{ supported: boolean }>("plugin:paste-button|supported");
+if (supported) {
+  const listener = await addPluginListener<{ text: string }>("paste-button", "paste", ({ text }) => {
+    if (text === "") showNothingToPaste();
+    else useCode(text);
+  });
+  const r = box.getBoundingClientRect();
+  const s = scroller.getBoundingClientRect();
+  await invoke("plugin:paste-button|place", {
+    x: r.left - s.left, y: r.top - s.top + scroller.scrollTop, w: r.width, h: r.height,
+    vx: r.left, vy: r.top, scrollHeight: scroller.scrollHeight,
+    tint: "#1f6feb", ink: "#ffffff", radius: 16, label: true,
+  });
+  // when the box leaves the screen
+  await invoke("plugin:paste-button|hide");
+  await listener.unregister();
+}
+```
+
 ## `tauri-plugin-keep`
 
 Keeps a few small text values on an iPhone or iPad after the app is deleted,

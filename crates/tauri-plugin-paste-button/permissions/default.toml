@@ -1,0 +1,9 @@
+[default]
+description = "Place and hide the paste button, and hear what it pasted"
+permissions = [
+  "allow-register-listener",
+  "allow-remove-listener",
+  "allow-supported",
+  "allow-place",
+  "allow-hide",
+]
