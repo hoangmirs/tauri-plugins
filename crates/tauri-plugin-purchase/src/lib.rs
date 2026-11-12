@@ -1,5 +1,5 @@
-//! `tauri-plugin-purchase`: one-time purchases through the phone's own store,
-//! `StoreKit` 2 on iOS and the Play Billing Library on Android.
+//! `tauri-plugin-purchase`: one-time purchases through the device's own store,
+//! `StoreKit` 2 on iOS and macOS and the Play Billing Library on Android.
 //!
 //! Seven commands, each answering JSON:
 //!
@@ -13,24 +13,28 @@
 //!   owns now. A refunded purchase is not in it
 //! - `restore { ids }` → the same as `owned`, after asking the store to bring
 //!   back past purchases
-//! - `finish { tx }` → `{}`, finishes a consumable on iOS and consumes it on
-//!   Android, once the app has claimed it
+//! - `finish { tx }` → `{}`, finishes a consumable on iOS and macOS and consumes
+//!   it on Android, once the app has claimed it
 //! - `unfinished { ids }` → `{ open: [{ id, tx }] }`, the consumables bought
 //!   and not yet finished
 //!
 //! A consumable that completes later, such as a pending Android payment or an
-//! iOS purchase cut off by a closed app, arrives as the `arrived` event with
+//! Apple purchase cut off by a closed app, arrives as the `arrived` event with
 //! `{ id, tx }`.
 //!
-//! `proof` is what a server checks with the store: on iOS the transaction
-//! Apple signed (its JWS), on Android the Play purchase token. The plugin
+//! `proof` is what a server checks with the store: on iOS and macOS the
+//! transaction Apple signed (its JWS), on Android the Play purchase token. The plugin
 //! never decides on its own that something is bought, and an app should not
 //! either: a server that asks the store is the one check a phone cannot fake.
 //!
-//! On a desktop every command answers an error.
+//! On macOS only an app from the Mac App Store, or `TestFlight`, can buy. On
+//! Windows and Linux every command answers an error.
 
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::Runtime;
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_purchase);
@@ -54,7 +58,29 @@ async fn ask<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
-#[cfg(mobile)]
+#[cfg(target_os = "macos")]
+async fn ask<R: Runtime>(
+    _app: &tauri::AppHandle<R>,
+    method: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    macos::ask(method, args).await
+}
+
+#[cfg(not(any(mobile, target_os = "macos")))]
+const NO_STORE: &str = "Purchases need the App Store or Google Play, on iOS, Android or macOS";
+
+// Async only to share the commands' shape with the platforms that wait.
+#[cfg(not(any(mobile, target_os = "macos")))]
+#[allow(clippy::unused_async)]
+async fn ask<R: Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _method: &str,
+    _args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    Err(NO_STORE.into())
+}
+
 #[tauri::command]
 async fn products<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -63,7 +89,6 @@ async fn products<R: Runtime>(
     ask(&app, "products", serde_json::json!({ "ids": ids })).await
 }
 
-#[cfg(mobile)]
 #[tauri::command]
 async fn buy<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -78,7 +103,6 @@ async fn buy<R: Runtime>(
     .await
 }
 
-#[cfg(mobile)]
 #[tauri::command]
 async fn owned<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -87,7 +111,6 @@ async fn owned<R: Runtime>(
     ask(&app, "owned", serde_json::json!({ "ids": ids })).await
 }
 
-#[cfg(mobile)]
 #[tauri::command]
 async fn finish<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -96,7 +119,6 @@ async fn finish<R: Runtime>(
     ask(&app, "finish", serde_json::json!({ "tx": tx })).await
 }
 
-#[cfg(mobile)]
 #[tauri::command]
 async fn unfinished<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -105,7 +127,6 @@ async fn unfinished<R: Runtime>(
     ask(&app, "unfinished", serde_json::json!({ "ids": ids })).await
 }
 
-#[cfg(mobile)]
 #[tauri::command]
 async fn restore<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -114,82 +135,50 @@ async fn restore<R: Runtime>(
     ask(&app, "restore", serde_json::json!({ "ids": ids })).await
 }
 
-#[cfg(not(mobile))]
-const NO_STORE: &str = "Purchases need the App Store or Google Play, on iOS or Android";
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn products(ids: Vec<String>) -> Result<serde_json::Value, String> {
-    let _ = ids;
-    Err(NO_STORE.into())
-}
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn buy(id: String, consumable: Option<bool>) -> Result<serde_json::Value, String> {
-    let _ = (id, consumable);
-    Err(NO_STORE.into())
-}
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn owned(ids: Vec<String>) -> Result<serde_json::Value, String> {
-    let _ = ids;
-    Err(NO_STORE.into())
-}
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn finish(tx: String) -> Result<serde_json::Value, String> {
-    let _ = tx;
-    Err(NO_STORE.into())
-}
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn unfinished(ids: Vec<String>) -> Result<serde_json::Value, String> {
-    let _ = ids;
-    Err(NO_STORE.into())
-}
-
-#[cfg(not(mobile))]
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn restore(ids: Vec<String>) -> Result<serde_json::Value, String> {
-    let _ = ids;
-    Err(NO_STORE.into())
-}
-
-/// Registers the plugin: the Swift side on iOS, the Kotlin side on Android,
-/// and commands that answer an error everywhere else.
+/// Registers the plugin: the Swift side on iOS and macOS, the Kotlin side on
+/// Android, and commands that answer an error on Windows and Linux.
 ///
-/// Register it at launch. On iOS it then finishes non-consumable purchases
-/// that complete while the app is closed, such as one a parent approved later,
-/// and on Android it acknowledges each non-consumable purchase, which Play
-/// refunds after three days without one. A consumable stays open until the app
-/// calls `finish`.
+/// Register it at launch. On iOS and macOS it then finishes non-consumable
+/// purchases that complete while the app is closed, such as one a parent
+/// approved later, and on Android it acknowledges each non-consumable
+/// purchase, which Play refunds after three days without one. A consumable
+/// stays open until the app calls `finish`.
 #[must_use]
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("purchase")
-        .invoke_handler(tauri::generate_handler![
-            products, buy, owned, restore, finish, unfinished
-        ])
-        .setup(|_app, _api| {
+    let builder = Builder::new("purchase");
+    // A mobile plugin's listeners belong to the core, so only the Mac lists
+    // its own.
+    #[cfg(target_os = "macos")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        products,
+        buy,
+        owned,
+        restore,
+        finish,
+        unfinished,
+        macos::register_listener,
+        macos::remove_listener
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        products, buy, owned, restore, finish, unfinished
+    ]);
+    builder
+        .setup(|app, api| {
+            #[cfg(target_os = "macos")]
+            macos::listen();
             #[cfg(mobile)]
             {
                 use tauri::Manager;
                 #[cfg(target_os = "android")]
                 let handle =
-                    _api.register_android_plugin("dev.hoangmirs.purchase", "PurchasePlugin")?;
+                    api.register_android_plugin("dev.hoangmirs.purchase", "PurchasePlugin")?;
                 #[cfg(target_os = "ios")]
-                let handle = _api.register_ios_plugin(init_plugin_purchase)?;
-                _app.manage(Native(handle));
+                let handle = api.register_ios_plugin(init_plugin_purchase)?;
+                app.manage(Native(handle));
             }
+            #[cfg(not(mobile))]
+            let _ = (app, api);
             Ok(())
         })
         .build()

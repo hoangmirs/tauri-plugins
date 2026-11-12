@@ -804,17 +804,22 @@ const { value, state: checked } = await invoke<{
 
 ## `tauri-plugin-purchase`
 
-Buys and restores one-time purchases, and sells consumables, through the phone's own store:
-StoreKit 2 on iOS 15 and later, and the Play Billing Library 9 on Android.
-On a desktop every command answers an error, and the TypeScript side reads
-that as a store it cannot ask.
+Buys and restores one-time purchases, and sells consumables, through the device's own store:
+StoreKit 2 on iOS 15 and later and on macOS 12 and later, and the Play
+Billing Library 9 on Android. On Windows and Linux every command answers an
+error, and the TypeScript side reads that as a store it cannot ask.
+
+iOS and macOS run the same StoreKit code (`ios/Sources/Store.swift`). On the
+Mac, `build.rs` compiles it with `swiftc` for each architecture, so a
+universal app links both halves. A Mac build needs Xcode or its command line
+tools.
 
 The plugin never decides that a player owns something. It hands the app a
 **proof**, and a server checks that proof with the store:
 
 | Store | Proof | The server asks |
 |---|---|---|
-| App Store | The transaction Apple signed (its JWS) | App Store Server API, Get Transaction Info, for the transaction id in the JWS |
+| App Store, Mac App Store | The transaction Apple signed (its JWS) | App Store Server API, Get Transaction Info, for the transaction id in the JWS |
 | Google Play | The purchase token | Play Developer API, `purchases.products.get`, for the token |
 
 A proof can be copied, so a server that only reads it proves nothing. Ask the
@@ -822,7 +827,7 @@ store each time.
 
 ### What the plugin does on its own
 
-- **iOS** finishes each verified non-consumable transaction. It also listens
+- **iOS and macOS** finish each verified non-consumable transaction. It also listens
   for transactions that complete outside the purchase sheet, such as one a
   parent approves later, and finishes those.
 - **Android** acknowledges each non-consumable purchase it sees, from the
@@ -840,11 +845,23 @@ its store screen.
 ### Setup (Rust)
 
 ```rust
-#[cfg(mobile)]
+#[cfg(any(mobile, target_os = "macos"))]
 app.handle().plugin(tauri_plugin_purchase::init())?;
 ```
 
-Add `purchase:default` to a capability for the phones. Make each product a
+Add `purchase:default` to a capability for the phones and the Mac.
+
+On the Mac:
+
+- Set `bundle.macOS.minimumSystemVersion` to `"12.0"` or later. StoreKit 2
+  starts at macOS 12. Below that, the app links a Swift runtime it does not
+  ship, and does not start.
+- Only a copy from the Mac App Store, or from TestFlight, can buy. A copy
+  signed with Developer ID and handed out as a download has no App Store
+  account behind it. Do not offer purchases in that copy.
+- A Mac app with the iOS app's bundle id shares its products in App Store
+  Connect (universal purchase), so `owned` and `restore` see what the player
+  bought on an iPhone. Make each product a
 non-consumable or consumable (App Store) or a one-time product (Google Play)
 with the same id in both stores.
 
@@ -884,15 +901,16 @@ const open = await unfinished(["app.stars300"]); // [{ id, tx }], or null when t
 const stop = await onArrived(({ id, tx }) => { /* claim, then finish */ });
 ```
 
-- `finish` is `transaction.finish()` on iOS and `consumeAsync` on Android.
+- `finish` is `transaction.finish()` on iOS and macOS and `consumeAsync` on
+  Android.
   Finishing a purchase that is already finished answers true.
 - Call `unfinished` at launch, and claim and finish each item. A purchase
   that was bought and never finished, because the app closed or the claim
   failed, shows up there until `finish` takes it. Claim by `tx`, so a second
   claim of the same item adds nothing.
 - `onArrived` fires for a consumable that completes later than its `buy`: a
-  pending Android payment that went through, or an iOS purchase the app closed
-  on. A pending Android purchase is never reported as bought or open.
+  pending Android payment that went through, or an Apple purchase the app
+  closed on. A pending Android purchase is never reported as bought or open.
 - Add `purchase:default` for the events too: it includes the listener
   permissions.
 
@@ -906,6 +924,9 @@ parent approves and a refund both land while the app is away.
   to the file, buy it, kill the app before `finish`, relaunch and see it in
   `unfinished`, then `finish` it and see it gone. TestFlight builds buy in the
   sandbox, so the server must ask the sandbox when production answers 404.
+- **macOS:** buy in a Mac App Store build on TestFlight, with a sandbox
+  account. A build from `tauri dev` is not signed for the App Store and may
+  find no products.
 - **Android:** purchases work only in an app installed from Google Play, for
   example from an internal test track, with a license tester account.
 
