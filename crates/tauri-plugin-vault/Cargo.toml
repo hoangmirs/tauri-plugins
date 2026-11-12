@@ -1,14 +1,14 @@
 [package]
 name = "tauri-plugin-vault"
 description = "Tauri plugin that keeps a value signed by a key on the device, so an edit made outside the app fails its check"
-version.workspace = true
+version = "0.1.0-alpha.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/tauri-plugin-vault"
 readme = "../../README.md"
-keywords = ["tauri", "tauri-plugin", "ios", "android", "keystore"]
+keywords = ["tauri", "tauri-plugin", "keychain", "keystore", "secure-enclave"]
 categories = ["gui"]
 links = "tauri-plugin-vault"
 
@@ -26,5 +26,12 @@ tauri-plugin = { version = "2.6.3", features = ["build"] }
 tauri = { workspace = true, features = ["test"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
-[lints]
-workspace = true
+# The workspace's lints, except `unsafe_code`: the workspace forbids it, and
+# the Mac's call into Swift over the C ABI needs it. `deny` keeps it out of
+# everything but `src/macos.rs`, which allows it.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

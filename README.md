@@ -726,12 +726,13 @@ the first `write`. After a signing key loss, it makes a new one at the next
 `write`, or at a `read` that finds a value whose signing key is gone. It tries
 these steps in order:
 
-1. iOS: a signing key in the Secure Enclave. Android 9 and later: one in
-   StrongBox.
+1. iOS, and a Mac with Apple silicon or a T2 chip: a signing key in the
+   Secure Enclave. Android 9 and later: one in StrongBox.
 2. Android: a signing key in the trusted execution environment, or the
    software Keystore on a phone without one. The system picks between the two.
-3. iOS without a Secure Enclave, such as the Simulator: a software signing key
-   kept as a Keychain item for this device only.
+3. iOS or a Mac without a Secure Enclave, such as the Simulator or an older
+   Intel Mac: a software signing key kept as a Keychain item for this device
+   only.
 4. No signing key can be made: the value is stored with no signature and the
    state is `unsigned`.
 
@@ -751,6 +752,11 @@ one key name to another.
   unlock, this device only" and never synchronized. iOS keeps Keychain items
   after the app is deleted. Apple does not document this, so read a missing
   value as a fresh install.
+- **macOS:** the same Keychain items as on iOS, in the data protection
+  keychain, the iPhone's kind. Only this app reaches them. Keychain Access
+  shows password items there, so a person can see or change a value. A
+  changed value then reads `tampered`. Keychain Access never shows the
+  signing key.
 - **Android:** one file for each key name, `vault/<key name>.json` in the app's
   private files folder. Auto Backup includes the file, unless the app's backup
   rules exclude it. Auto Backup never includes a Keystore signing key. A
@@ -770,13 +776,18 @@ one key name to another.
   The signing key stays.
 - A value is at most 64 KiB of UTF-8 text.
 - A key name is 1 to 64 ASCII letters, digits, `.`, `-` or `_`.
-- The plugin works on iOS 14 or later and on Android 8 (API 26) or later.
-  On any other platform both commands answer an error.
+- The plugin works on iOS 14 or later, on Android 8 (API 26) or later, and
+  on macOS 10.15 or later. On Windows and Linux both commands answer an error.
+- On the Mac the app needs an App ID entitlement
+  (`com.apple.application-identifier`), as a Mac App Store build has. Without
+  it, as in a dev build or a Developer ID download, a `read` finds nothing and
+  a `write` fails with -34018. A Mac build compiles the Swift code, so it needs
+  Xcode or its command line tools.
 
 ### Setup (Rust)
 
 ```toml
-tauri-plugin-vault = "=0.1.0-alpha.1"
+tauri-plugin-vault = "=0.1.0-alpha.2"
 ```
 
 ```rust
