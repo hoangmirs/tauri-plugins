@@ -2871,11 +2871,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-purchase"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde_json",
  "tauri",
  "tauri-plugin",
+ "tokio",
 ]
 
 [[package]]

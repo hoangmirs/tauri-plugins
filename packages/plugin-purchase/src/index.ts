@@ -4,12 +4,12 @@ import { addPluginListener, invoke, isTauri } from "@tauri-apps/api/core";
 export type Price = { id: string; price: string };
 
 /** What the store's purchase sheet ended with. `proof` is for a server to
- * check with the store: the signed transaction on iOS, the purchase token on
- * Android. */
+ * check with the store: the signed transaction on iOS and macOS, the purchase
+ * token on Android. */
 export type Bought = { state: "bought"; proof: string } | { state: "cancelled" | "pending" | "failed" };
 
 /** What `buy` ends with for a consumable. `tx` is the transaction id on iOS
- * and the purchase token on Android. The purchase stays open until `finish`. */
+ * and macOS, and the purchase token on Android. The purchase stays open until `finish`. */
 export type BoughtConsumable =
   | { state: "bought"; proof: string; tx: string }
   | { state: "cancelled" | "pending" | "failed" };
@@ -41,8 +41,8 @@ const call = async (cmd: string, args: Record<string, unknown>): Promise<unknown
   }
 };
 
-/** The prices of the products the store knows. Outside Tauri, on a desktop,
- * or when the store cannot be reached, it is empty. */
+/** The prices of the products the store knows. Outside Tauri, on Windows or
+ * Linux, or when the store cannot be reached, it is empty. */
 export async function products(ids: string[]): Promise<Price[]> {
   const v = await call("products", { ids });
   return isObj(v) ? pairs(v.products, "id", "price") : [];
@@ -67,8 +67,8 @@ export async function buy(id: string, options?: { consumable?: boolean }): Promi
   return { state: "failed" };
 }
 
-/** Finishes a consumable the app has claimed: `finish` on iOS, consume on
- * Android. True when the store took it, false when it did not, so call it
+/** Finishes a consumable the app has claimed: `finish` on iOS and macOS,
+ * consume on Android. True when the store took it, false when it did not, so call it
  * again later. Finishing one twice is fine. */
 export async function finish(tx: string): Promise<boolean> {
   return isObj(await call("finish", { tx }));
@@ -82,7 +82,7 @@ export async function unfinished(ids: string[]): Promise<Open[] | null> {
 }
 
 /** Calls `fn` when a consumable completes later: a pending Android payment
- * that went through, or an iOS purchase the app closed on. Claim it, then
+ * that went through, or an Apple purchase the app closed on. Claim it, then
  * `finish` it. Returns a function that stops listening. Outside Tauri it
  * never calls `fn`. */
 export async function onArrived(fn: (open: Open) => void): Promise<() => void> {
@@ -103,15 +103,15 @@ const heldIn = (v: unknown, ids: string[]): Held[] | null =>
   isObj(v) ? pairs(v.owned, "id", "proof").filter((h) => ids.includes(h.id)) : null;
 
 /** What this store account owns now, among `ids`. A refunded purchase is not
- * in it. Null when the store cannot be asked: outside Tauri, on a desktop, or
- * when the store does not answer. Keep the last answer then, because reading
+ * in it. Null when the store cannot be asked: outside Tauri, on Windows or
+ * Linux, or when the store does not answer. Keep the last answer then, because reading
  * null as "owns nothing" locks what a player paid for. */
 export async function owned(ids: string[]): Promise<Held[] | null> {
   return heldIn(await call("owned", { ids }), ids);
 }
 
 /** The same as `owned`, after asking the store to bring back past purchases.
- * Call it from a button: on iOS it can ask the player to sign in. */
+ * Call it from a button: on iOS and macOS it can ask the player to sign in. */
 export async function restore(ids: string[]): Promise<Held[] | null> {
   return heldIn(await call("restore", { ids }), ids);
 }
