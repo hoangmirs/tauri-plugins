@@ -116,7 +116,8 @@ enum PushReceiver {
   }
 
   private static func clear(group: String?, then done: @escaping (UIBackgroundFetchResult) -> Void) {
-    guard let group else {
+    // An empty group would match every notification without a thread id.
+    guard let group, !group.isEmpty else {
       done(.noData)
       return
     }
@@ -124,7 +125,9 @@ enum PushReceiver {
     center.getDeliveredNotifications { delivered in
       let ids = delivered.filter { $0.request.content.threadIdentifier == group }.map { $0.request.identifier }
       center.removeDeliveredNotifications(withIdentifiers: ids)
-      done(ids.isEmpty ? .noData : .newData)
+      // This callback runs on a background queue, and the next handler in the
+      // chain expects the main thread.
+      DispatchQueue.main.async { done(ids.isEmpty ? .noData : .newData) }
     }
   }
 }

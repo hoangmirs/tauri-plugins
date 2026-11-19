@@ -93,28 +93,34 @@ class FirebasePlugin: Plugin {
         invoke.resolve()
         return
       }
-      DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
-      Self.waitForAPNs(until: Date().addingTimeInterval(10)) { ready in
-        guard ready else {
-          invoke.resolve()
-          return
-        }
-        // Deprecated for `register(completion:)`, which answers the installation
-        // id. The push service sends to the token.
-        Messaging.messaging().token { token, _ in
-          if let token { invoke.resolve(["token": token]) } else { invoke.resolve() }
+      DispatchQueue.main.async {
+        // The app ships `FirebaseMessagingAutoInitEnabled` NO, so Firebase makes
+        // no token before the player opts in. Asking turns it on.
+        Messaging.messaging().isAutoInitEnabled = true
+        UIApplication.shared.registerForRemoteNotifications()
+        Self.waitForAPNs(until: Date().addingTimeInterval(10)) { ready in
+          guard ready else {
+            invoke.resolve()
+            return
+          }
+          // Deprecated for `register(completion:)`, which answers the installation
+          // id. The push service sends to the token.
+          Messaging.messaging().token { token, _ in
+            if let token { invoke.resolve(["token": token]) } else { invoke.resolve() }
+          }
         }
       }
     }
   }
 
+  /// Polls on the main thread, where Firebase's proxy writes the APNs token.
   private static func waitForAPNs(until deadline: Date, then done: @escaping (Bool) -> Void) {
     if Messaging.messaging().apnsToken != nil {
       done(true)
     } else if Date() >= deadline {
       done(false)
     } else {
-      DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { waitForAPNs(until: deadline, then: done) }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { waitForAPNs(until: deadline, then: done) }
     }
   }
 
@@ -123,7 +129,11 @@ class FirebasePlugin: Plugin {
       invoke.resolve()
       return
     }
-    Messaging.messaging().deleteToken { _ in invoke.resolve() }
+    Messaging.messaging().deleteToken { _ in
+      // Left on, Firebase would make a new token at the next start.
+      Messaging.messaging().isAutoInitEnabled = false
+      invoke.resolve()
+    }
   }
 
   @objc public func takePushData(_ invoke: Invoke) {

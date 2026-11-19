@@ -1426,10 +1426,16 @@ service. Do not declare a second service for that event in the app. Its
 
 #### Firebase's own settings
 
-- Firebase Messaging registers for a token when the app starts, by default.
-  Firebase documents `FirebaseMessagingAutoInitEnabled` (iOS `Info.plist`)
-  and `firebase_messaging_auto_init_enabled` (Android manifest) for an app
-  that asks the player first.
+- By default, Firebase Messaging makes a token with Google at every start,
+  before the player opts in. The plugin keeps it off until the app asks:
+  - Android: the library's manifest sets `firebase_messaging_auto_init_enabled`
+    to `false`.
+  - iOS: set `FirebaseMessagingAutoInitEnabled` to `NO` in the app's
+    `Info.plist`. A library cannot set it there.
+  - `pushToken()` turns auto-init on before it asks for the token, and
+    `deletePushToken()` turns it off after the delete. Without that, Firebase
+    makes a new token at the next start. Firebase keeps the setting across
+    launches.
 - Leave `FirebaseMessagingInstallationIdEnabled` (iOS) and
   `firebase_messaging_installation_id_enabled` (Android) unset. They replace
   the token with the Firebase installation id, and the token calls then stop

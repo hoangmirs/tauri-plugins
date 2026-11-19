@@ -116,7 +116,11 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve(JSObject())
       return
     }
-    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+    // The library's manifest turns auto-init off, so Firebase makes no token
+    // before the player opts in. Asking turns it on.
+    val messaging = FirebaseMessaging.getInstance()
+    messaging.isAutoInitEnabled = true
+    messaging.token.addOnCompleteListener { task ->
       val answer = JSObject()
       if (task.isSuccessful) task.result?.let { answer.put("token", it) }
       invoke.resolve(answer)
@@ -130,7 +134,12 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve()
       return
     }
-    FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener { invoke.resolve() }
+    val messaging = FirebaseMessaging.getInstance()
+    messaging.deleteToken().addOnCompleteListener {
+      // Left on, Firebase would make a new token at the next start.
+      messaging.isAutoInitEnabled = false
+      invoke.resolve()
+    }
   }
 
   @Command
