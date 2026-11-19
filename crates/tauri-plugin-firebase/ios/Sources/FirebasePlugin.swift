@@ -1,8 +1,11 @@
 import FirebaseAnalytics
 import FirebaseCore
 import FirebaseCrashlytics
+import FirebaseMessaging
 import FirebaseRemoteConfig
 import Tauri
+import UIKit
+import UserNotifications
 
 class ConfigureArgs: Decodable {
   let minimumFetchIntervalSeconds: Double
@@ -40,6 +43,10 @@ struct ConfigUpdate: Encodable {
   let keys: [String]
 }
 
+struct PushToken: Encodable {
+  let token: String
+}
+
 class FirebasePlugin: Plugin {
   private var configured = false
   /// The one listener for Remote Config publishes. The SDK serves every
@@ -54,8 +61,73 @@ class FirebasePlugin: Plugin {
     // `FirebaseApp.configure()` stops the app when the plist is missing, and an
     // app without its Firebase file must still start on its defaults.
     guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return }
+    FirebasePlugin.live = self
+    PushReceiver.install()
     if FirebaseApp.app() == nil { FirebaseApp.configure() }
     configured = true
+    Messaging.messaging().delegate = self
+  }
+
+  /// The plugin `PushReceiver` and Messaging report to. The app delegate
+  /// receives a silent push whether or not a webview exists.
+  private static weak var live: FirebasePlugin?
+
+  static func emit(pushData entry: [String: Any]) {
+    // Tauri's listener table has no lock.
+    DispatchQueue.main.async {
+      live?.trigger("pushData", data: JSTypes.coerceDictionaryToJSObject(entry) ?? [:])
+    }
+  }
+
+  /// The FCM token, once iOS gave Firebase an APNs token. Firebase's app
+  /// delegate proxy passes that token on, so the app must leave
+  /// `FirebaseAppDelegateProxyEnabled` unset. The app asks for notification
+  /// permission itself, before this.
+  @objc public func pushToken(_ invoke: Invoke) {
+    guard configured else {
+      invoke.resolve()
+      return
+    }
+    UNUserNotificationCenter.current().getNotificationSettings { settings in
+      guard settings.authorizationStatus != .denied else {
+        invoke.resolve()
+        return
+      }
+      DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+      Self.waitForAPNs(until: Date().addingTimeInterval(10)) { ready in
+        guard ready else {
+          invoke.resolve()
+          return
+        }
+        // Deprecated for `register(completion:)`, which answers the installation
+        // id. The push service sends to the token.
+        Messaging.messaging().token { token, _ in
+          if let token { invoke.resolve(["token": token]) } else { invoke.resolve() }
+        }
+      }
+    }
+  }
+
+  private static func waitForAPNs(until deadline: Date, then done: @escaping (Bool) -> Void) {
+    if Messaging.messaging().apnsToken != nil {
+      done(true)
+    } else if Date() >= deadline {
+      done(false)
+    } else {
+      DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { waitForAPNs(until: deadline, then: done) }
+    }
+  }
+
+  @objc public func deletePushToken(_ invoke: Invoke) {
+    guard configured else {
+      invoke.resolve()
+      return
+    }
+    Messaging.messaging().deleteToken { _ in invoke.resolve() }
+  }
+
+  @objc public func takePushData(_ invoke: Invoke) {
+    invoke.resolve(["entries": PushQueue.take()])
   }
 
   @objc public func configure(_ invoke: Invoke) {
@@ -215,6 +287,15 @@ class FirebasePlugin: Plugin {
     case .remote: return "remote"
     case .default: return "default"
     default: return "static"
+    }
+  }
+}
+
+extension FirebasePlugin: MessagingDelegate {
+  public func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+    guard let fcmToken else { return }
+    DispatchQueue.main.async { [weak self] in
+      try? self?.trigger("pushToken", data: PushToken(token: fcmToken))
     }
   }
 }

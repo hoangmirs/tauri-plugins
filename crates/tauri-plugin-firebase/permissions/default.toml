@@ -1,5 +1,5 @@
 [default]
-description = "Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports"
+description = "Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes"
 permissions = [
   "allow-mode",
   "allow-set-defaults",
@@ -17,4 +17,7 @@ permissions = [
   "allow-crash-set-keys",
   "allow-crash-log",
   "allow-crash-record",
+  "allow-push-token",
+  "allow-delete-push-token",
+  "allow-take-push-data",
 ]

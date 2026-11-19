@@ -33,4 +33,6 @@ dependencies {
   implementation("com.google.firebase:firebase-analytics")
   implementation("com.google.firebase:firebase-crashlytics")
   implementation("com.google.firebase:firebase-crashlytics-ndk")
+  implementation("com.google.firebase:firebase-messaging")
+  testImplementation("junit:junit:4.13.2")
 }

@@ -8,7 +8,12 @@ import {
   init,
   listen,
   logEvent,
+  onPushData,
+  onPushToken,
   parseStack,
+  pushToken,
+  deletePushToken,
+  takePushData,
   recordError,
   resetForTests,
   setCollection,
@@ -497,4 +502,72 @@ test("setCustomSignals never rejects", async () => {
     throw new Error("no command");
   });
   await setCustomSignals({ split_a: 0.5 });
+});
+
+test("pushToken_calls_the_command_and_answers_null_on_error", async () => {
+  const calls = setupTauri((cmd) => (cmd === "plugin:firebase|push_token" ? "fcm-token" : null));
+  assert.equal(await pushToken(), "fcm-token");
+  assert.deepEqual(calls.at(-1)?.cmd, "plugin:firebase|push_token");
+  await deletePushToken();
+  assert.deepEqual(calls.at(-1)?.cmd, "plugin:firebase|delete_push_token");
+  await resetForTests();
+  setupTauri(() => {
+    throw new Error("no command");
+  });
+  assert.equal(await pushToken(), null);
+  await deletePushToken();
+});
+
+test("onPushToken_listens_to_pushToken", async () => {
+  const calls = setupTauri(phone);
+  const heard: string[] = [];
+  const stop = await onPushToken((token) => heard.push(token));
+  const registered = calls.find((c) => c.cmd === "plugin:firebase|register_listener");
+  assert.equal((registered?.args as { event: string }).event, "pushToken");
+  sendEvent({ token: "t1" });
+  sendEvent({ token: 7 });
+  assert.deepEqual(heard, ["t1"]);
+  stop();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(calls.some((c) => c.cmd === "plugin:firebase|remove_listener"));
+});
+
+test("takePushData_answers_an_empty_list_on_error", async () => {
+  const entry = { action: "refresh", data: { what: "inbox" }, at: 1 };
+  setupTauri((cmd) => (cmd === "plugin:firebase|take_push_data" ? [entry, { at: 2 }] : null));
+  assert.deepEqual(await takePushData(), [entry]);
+  await resetForTests();
+  setupTauri(() => {
+    throw new Error("no command");
+  });
+  assert.deepEqual(await takePushData(), []);
+});
+
+test("onPushData_listens_to_pushData", async () => {
+  const calls = setupTauri(phone);
+  const heard: unknown[] = [];
+  await onPushData((entry) => heard.push(entry));
+  const registered = calls.find((c) => c.cmd === "plugin:firebase|register_listener");
+  assert.equal((registered?.args as { event: string }).event, "pushData");
+  sendEvent({ action: "refresh", data: null, at: 3 });
+  sendEvent("not an entry");
+  assert.deepEqual(heard, [{ action: "refresh", data: null, at: 3 }]);
+});
+
+test("on the web, push functions answer null, an empty list and a stop that does nothing", async () => {
+  assert.equal(await pushToken(), null);
+  await deletePushToken();
+  assert.deepEqual(await takePushData(), []);
+  const stop = await onPushToken(() => assert.fail("no token on the web"));
+  assert.doesNotThrow(() => stop());
+  const stopData = await onPushData(() => assert.fail("no data on the web"));
+  assert.doesNotThrow(() => stopData());
+});
+
+test("on a phone whose bridge refuses, onPushToken resolves and never throws", async () => {
+  setupTauri(() => {
+    throw new Error("gone");
+  });
+  const stop = await onPushToken(() => assert.fail("heard nothing"));
+  assert.doesNotThrow(() => stop());
 });

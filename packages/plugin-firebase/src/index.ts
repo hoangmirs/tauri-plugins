@@ -216,6 +216,66 @@ export async function recordError(name: string, message: string, stack: string):
   await crashCommand("crash_record", { name, message, frames: parseStack(stack) });
 }
 
+/** A silent push the native side kept: its action, its data, and when it
+ *  came, in milliseconds since 1970. */
+export type PushData = { action: string; data: unknown; at: number };
+
+const isPushData = (raw: unknown): raw is PushData => {
+  const entry = raw as Partial<PushData> | null;
+  return typeof entry?.action === "string" && typeof entry.at === "number" && "data" in entry;
+};
+
+/** The device's push token, or `null` on the web, on a desktop, on a phone
+ *  without its Firebase file, when the system denies notifications, or when
+ *  no token comes in time. Never rejects. */
+export async function pushToken(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const token = await command<unknown>("push_token", undefined, null);
+  return typeof token === "string" ? token : null;
+}
+
+/** Deletes the device's push token. Never rejects. */
+export async function deletePushToken(): Promise<void> {
+  if (!isTauri()) return;
+  await command("delete_push_token", undefined, undefined);
+}
+
+/** The silent pushes kept since the last call, oldest first. The call
+ *  empties the queue. Never rejects. */
+export async function takePushData(): Promise<PushData[]> {
+  if (!isTauri()) return [];
+  const entries = await command<unknown>("take_push_data", undefined, []);
+  return Array.isArray(entries) ? entries.filter(isPushData) : [];
+}
+
+/** Hears one plugin event. Resolves to the function that stops hearing it,
+ *  which does nothing on the web or when the bridge refuses. */
+async function hear(event: string, on: (raw: unknown) => void): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  try {
+    const listener = await addPluginListener("firebase", event, on);
+    return () => void listener.unregister().catch(() => {});
+  } catch {
+    return () => {};
+  }
+}
+
+/** Calls `on` with each new push token. Never rejects. */
+export function onPushToken(on: (token: string) => void): Promise<() => void> {
+  return hear("pushToken", (raw) => {
+    const token = (raw as { token?: unknown } | null)?.token;
+    if (typeof token === "string") on(token);
+  });
+}
+
+/** Calls `on` with each silent push while the app runs. The same entry also
+ *  stays in the queue for `takePushData`. Never rejects. */
+export function onPushData(on: (entry: PushData) => void): Promise<() => void> {
+  return hear("pushData", (raw) => {
+    if (isPushData(raw)) on(raw);
+  });
+}
+
 export async function resetForTests(): Promise<void> {
   mode = undefined;
   defaults = {};

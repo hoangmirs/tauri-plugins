@@ -1,6 +1,7 @@
 package dev.hoangmirs.firebase
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.os.Bundle
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -12,6 +13,7 @@ import app.tauri.plugin.Plugin
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.remoteconfig.ConfigUpdate
 import com.google.firebase.remoteconfig.ConfigUpdateListener
 import com.google.firebase.remoteconfig.ConfigUpdateListenerRegistration
@@ -20,6 +22,7 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigFetchThrottledException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
+import java.lang.ref.WeakReference
 
 @InvokeArg
 class ConfigureArgs {
@@ -77,6 +80,63 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
     FirebaseApp.initializeApp(activity) != null
 
   private fun config() = FirebaseRemoteConfig.getInstance()
+
+  companion object {
+    // `PushService` runs whether or not a webview exists, and reaches the
+    // plugin through this.
+    @Volatile private var current = WeakReference<FirebasePlugin>(null)
+
+    fun live(): FirebasePlugin? = current.get()
+  }
+
+  init {
+    current = WeakReference(this)
+  }
+
+  override fun onDestroy() {
+    if (current.get() === this) current = WeakReference(null)
+    super.onDestroy()
+  }
+
+  // Tauri's listener table has no lock, so every event goes from the UI thread.
+  fun emit(event: String, payload: JSObject) {
+    activity.runOnUiThread { trigger(event, payload) }
+  }
+
+  // No token when the player turned notifications off: the app then keeps no
+  // device for this phone. The token calls are deprecated for `register()`,
+  // which targets the installation id and fails unless the app's manifest
+  // turns on `firebase_messaging_installation_id_enabled`. The push service
+  // sends to the token.
+  @Command
+  @Suppress("DEPRECATION")
+  fun pushToken(invoke: Invoke) {
+    val manager = activity.getSystemService(NotificationManager::class.java)
+    if (!configured || manager?.areNotificationsEnabled() == false) {
+      invoke.resolve(JSObject())
+      return
+    }
+    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+      val answer = JSObject()
+      if (task.isSuccessful) task.result?.let { answer.put("token", it) }
+      invoke.resolve(answer)
+    }
+  }
+
+  @Command
+  @Suppress("DEPRECATION")
+  fun deletePushToken(invoke: Invoke) {
+    if (!configured) {
+      invoke.resolve()
+      return
+    }
+    FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener { invoke.resolve() }
+  }
+
+  @Command
+  fun takePushData(invoke: Invoke) {
+    invoke.resolve(JSObject().put("entries", Push.take(activity)))
+  }
 
   // The one listener for Remote Config publishes. The SDK serves every
   // listener from one stream, but a second would send each publish twice.

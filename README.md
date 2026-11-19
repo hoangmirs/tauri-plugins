@@ -1168,9 +1168,10 @@ if ((await loadRewarded(unitId)) === "ready") await showRewarded();
 
 ## `tauri-plugin-firebase`
 
-Reads Firebase Remote Config, logs Firebase Analytics events and sends
-Crashlytics crash reports, so an app can change values, turn features on and
-off, run A/B tests without a release, and see why it crashed.
+Reads Firebase Remote Config, logs Firebase Analytics events, sends
+Crashlytics crash reports, and gets Firebase Cloud Messaging tokens and silent
+pushes, so an app can change values, turn features on and off, run A/B tests
+without a release, see why it crashed, and hear from its server.
 iOS and Android use Firebase's native SDKs. The web and a Tauri desktop app use
 the Firebase web SDK through the TypeScript package.
 
@@ -1331,6 +1332,110 @@ obfuscated names.
   Crashlytics stops the app as it starts. An app that applies the plugin still
   gets its build ID.
 
+### Push messages
+
+iOS and Android get a Firebase Cloud Messaging token and silent pushes. The
+web, a desktop and a phone without its Firebase file get none: `pushToken`
+answers `null`, `takePushData` answers `[]`, and the listeners hear nothing.
+No push function rejects.
+
+- `pushToken()` answers the device's token, or `null`. On iOS it registers
+  with Apple's push service on the main thread, waits up to 10 seconds for
+  the APNs token, then asks Firebase for the token. It answers `null` when the
+  system denies notifications, on Android too, and when no token comes in
+  time. It never asks the player for permission: the app asks first, for
+  example with Tauri's notification plugin.
+- `deletePushToken()` deletes the token.
+- `onPushToken(on)` calls `on` with each new token. The token comes from
+  `MessagingDelegate` on iOS and from `onNewToken` on Android, as the plugin
+  event `pushToken` with `{ token }`. On Android, a token that changes while
+  no webview runs reaches the app at its next `pushToken()`.
+- `takePushData()` answers the kept silent pushes, oldest first, and empties
+  the queue. Call it at each start and each return from the background.
+- `onPushData(on)` calls `on` with each silent push while the app runs, as
+  the plugin event `pushData`. The same entry also stays in the queue, so the
+  app can see one push twice. Make each action safe to repeat.
+
+The plugin's commands are `push_token`, `delete_push_token` and
+`take_push_data`, all in `firebase:default`.
+
+#### Silent pushes
+
+A silent push is a data-only message with two keys: `action`, and `data`, a
+JSON text. The plugin's native code receives it, so it works while the app's
+own code does not run.
+
+- `clear` removes the delivered notifications whose thread id (iOS) or tag
+  (Android) equals `data.group`. It does nothing else, and never joins the
+  queue.
+- Every other action joins the queue as `{ action, data, at }`: `data` parsed
+  from its JSON text, and `at` in milliseconds since 1970. The queue keeps the
+  20 newest entries, and drops an entry after 24 hours. It lives in the app's
+  own `UserDefaults` or `SharedPreferences`, so an app the system stopped
+  keeps it.
+- A message with a notification part is not a silent push. On Android the
+  library shows it while the app is in the background, and nothing shows it
+  while the app is open.
+
+iOS limits silent pushes to a few an hour, and drops them for an app the
+player swiped away. Android can hold them while the phone sleeps. A silent
+push can only prepare the next opening: never make it the only way a change
+reaches the app.
+
+#### How iOS receives a silent push
+
+iOS hands a silent push to the app delegate's
+`application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`. A Tauri
+app's delegate has none, so the plugin adds it to the delegate's class when
+the plugin starts, before it starts Firebase:
+
+- If the class already has the method, the plugin's version handles the push
+  first, then calls the original with the system's handler. The original then
+  calls that handler. Otherwise the plugin calls it, once.
+- Firebase's app delegate proxy starts after the plugin's method is in place.
+  It finds the method and wraps it: Firebase's wrapper calls the plugin's
+  method with a handler of its own, and calls the system's handler once,
+  after every part has answered.
+- If Firebase proxied the delegate first, the delegate's class is Firebase's
+  subclass, and its method is Firebase's wrapper. The plugin's version then
+  wraps Firebase's, by the first rule.
+- When the plugin adds the method, it sets the app delegate again, because
+  UIKit reads which methods a delegate has only when the delegate is set.
+  Firebase does the same.
+- The plugin sets `Messaging.messaging().delegate` and never
+  `UNUserNotificationCenter`'s delegate, which belongs to the app's
+  notification plugin. A tap on a push reaches the app through that plugin.
+
+The app adds:
+
+- the Push Notifications capability, with `aps-environment` in its
+  entitlements,
+- `remote-notification` in `UIBackgroundModes` in `Info.plist`,
+- Apple's push key in the Firebase console.
+
+Leave `FirebaseAppDelegateProxyEnabled` unset. The plugin relies on Firebase's
+proxy to pass the APNs token to Messaging: with the proxy off, `pushToken`
+waits 10 seconds and answers `null`.
+
+#### How Android receives a silent push
+
+The library's manifest declares `PushService`, a `FirebaseMessagingService`
+that takes `com.google.firebase.MESSAGING_EVENT` ahead of the library's own
+service. Do not declare a second service for that event in the app. Its
+`onMessageReceived` handles data-only messages only.
+
+#### Firebase's own settings
+
+- Firebase Messaging registers for a token when the app starts, by default.
+  Firebase documents `FirebaseMessagingAutoInitEnabled` (iOS `Info.plist`)
+  and `firebase_messaging_auto_init_enabled` (Android manifest) for an app
+  that asks the player first.
+- Leave `FirebaseMessagingInstallationIdEnabled` (iOS) and
+  `firebase_messaging_installation_id_enabled` (Android) unset. They replace
+  the token with the Firebase installation id, and the token calls then stop
+  working. Firebase marks the token calls deprecated for that mode, but it is
+  off by default.
+
 ### Build notes
 
 - iOS: Firebase Analytics ships as prebuilt static frameworks. `build.rs`
@@ -1348,6 +1453,8 @@ obfuscated names.
 - Firebase starts when the plugin is created, not when the webview loads, so
   the plugin works whether the app registers it on the builder or in
   `setup`.
+- iOS: Firebase Messaging builds from source with the Swift package, so it
+  needs no step in `build.rs`.
 - Android: the library uses Firebase BoM 34.19.0. BoM 35 needs Kotlin 2.1 or
   later in the app, and Tauri's Android template uses Kotlin 1.9.
 - Firebase's iOS resource bundles, with their privacy manifests, do not reach
@@ -1359,8 +1466,8 @@ obfuscated names.
 app.handle().plugin(tauri_plugin_firebase::init(Default::default()))?;
 ```
 
-Add `firebase:default` to a capability for every window that reads values,
-desktop included. Put `GoogleService-Info.plist` in the iOS app's resources
+Add `firebase:default` to a capability for every window that reads values or
+push data, desktop included. Put `GoogleService-Info.plist` in the iOS app's resources
 and `google-services.json` in the Android app, with Google's Gradle plugin.
 
 ### Use (TypeScript)
@@ -1373,11 +1480,15 @@ import {
   getAll,
   init,
   logEvent,
+  onPushData,
+  onPushToken,
+  pushToken,
   recordError,
   setCollection,
   setCrashCollection,
   setCrashKeys,
   setDefaults,
+  takePushData,
 } from "tauri-plugin-firebase-api";
 
 // The web and the desktop only. A phone reads its own Firebase file.
@@ -1401,6 +1512,12 @@ try {
 } catch (error) {
   if (error instanceof Error) await recordError(error.name, error.message, error.stack ?? "");
 }
+
+// After the player allowed notifications.
+const token = await pushToken(); // null on the web, a desktop, or when denied
+const stopToken = await onPushToken((next) => sendToServer(next));
+for (const entry of await takePushData()) handle(entry); // { action, data, at }
+const stopData = await onPushData(handle);
 ```
 
 On the web the package loads `firebase` (12.8.0 or later) with a dynamic
