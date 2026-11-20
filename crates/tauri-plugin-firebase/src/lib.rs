@@ -19,7 +19,7 @@ use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime, State};
 
 pub use crash::{Crash, CrashExt, Frame};
-pub use push::{Push, PushData, PushExt};
+pub use push::{Push, PushData, PushExt, PushTokenAnswer};
 pub use values::Entry;
 
 #[cfg(target_os = "ios")]
@@ -254,6 +254,7 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
             crash::crash_log,
             crash::crash_record,
             push::push_token,
+            push::push_token_answer,
             push::delete_push_token,
             push::take_push_data
         ])

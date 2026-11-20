@@ -18,6 +18,17 @@ pub struct PushData {
     pub at: u64,
 }
 
+/// What a call for the push token got: the token, or why there is none. The
+/// reasons are `unconfigured` (no Firebase file), `denied` (the system blocks
+/// notifications), `no-apns-token` (iOS gave no APNs token in 10 seconds),
+/// `apns-refused` (iOS refused to register), `fcm-failed` (Firebase gave no
+/// token) and `unsupported` (a desktop).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushTokenAnswer {
+    pub token: Option<String>,
+    pub problem: Option<String>,
+}
+
 /// The push API of one app.
 pub struct Push<R: Runtime> {
     #[cfg_attr(not(mobile), allow(dead_code))]
@@ -38,9 +49,37 @@ impl<R: Runtime> Push<R> {
     /// The device's push token. `None` when the system denies notifications,
     /// or when no token comes in time.
     pub async fn token(&self) -> Option<String> {
-        self.call("pushToken")
-            .await
-            .and_then(|v| v.get("token").and_then(Value::as_str).map(str::to_string))
+        self.token_answer().await.token
+    }
+
+    /// The device's push token, or why there is none.
+    pub async fn token_answer(&self) -> PushTokenAnswer {
+        let Some(v) = self.call("pushToken").await else {
+            return PushTokenAnswer {
+                token: None,
+                problem: Some(
+                    if cfg!(mobile) {
+                        "unconfigured"
+                    } else {
+                        "unsupported"
+                    }
+                    .into(),
+                ),
+            };
+        };
+        let text = |key: &str| {
+            v.get(key)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        };
+        let token = text("token");
+        let problem = if token.is_some() {
+            None
+        } else {
+            Some(text("problem").unwrap_or_else(|| "fcm-failed".into()))
+        };
+        PushTokenAnswer { token, problem }
     }
 
     pub async fn delete_token(&self) {
@@ -81,6 +120,11 @@ impl<R: Runtime> Push<R> {
 #[tauri::command]
 pub(crate) async fn push_token<R: Runtime>(app: AppHandle<R>) -> Option<String> {
     app.push().token().await
+}
+
+#[tauri::command]
+pub(crate) async fn push_token_answer<R: Runtime>(app: AppHandle<R>) -> PushTokenAnswer {
+    app.push().token_answer().await
 }
 
 #[tauri::command]

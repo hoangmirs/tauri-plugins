@@ -18,6 +18,7 @@ permissions = [
   "allow-crash-log",
   "allow-crash-record",
   "allow-push-token",
+  "allow-push-token-answer",
   "allow-delete-push-token",
   "allow-take-push-data",
 ]

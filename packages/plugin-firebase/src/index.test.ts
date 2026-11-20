@@ -12,6 +12,7 @@ import {
   onPushToken,
   parseStack,
   pushToken,
+  pushTokenAnswer,
   deletePushToken,
   takePushData,
   recordError,
@@ -502,6 +503,25 @@ test("setCustomSignals never rejects", async () => {
     throw new Error("no command");
   });
   await setCustomSignals({ split_a: 0.5 });
+});
+
+test("pushTokenAnswer_answers_the_token_or_why_there_is_none", async () => {
+  setupTauri(() => ({ token: "fcm-token", problem: null }));
+  assert.deepEqual(await pushTokenAnswer(), { token: "fcm-token", problem: null });
+  setupTauri(() => ({ token: null, problem: "no-apns-token" }));
+  assert.deepEqual(await pushTokenAnswer(), { token: null, problem: "no-apns-token" });
+  setupTauri(() => ({ token: null, problem: "from-a-later-version" }));
+  assert.deepEqual(await pushTokenAnswer(), { token: null, problem: "fcm-failed" });
+  setupTauri(() => {
+    throw new Error("no command");
+  });
+  assert.deepEqual(await pushTokenAnswer(), { token: null, problem: "unconfigured" });
+});
+
+test("pushTokenAnswer_calls_its_own_command", async () => {
+  const calls = setupTauri(() => ({ token: "t", problem: null }));
+  await pushTokenAnswer();
+  assert.equal(calls.at(-1)?.cmd, "plugin:firebase|push_token_answer");
 });
 
 test("pushToken_calls_the_command_and_answers_null_on_error", async () => {
