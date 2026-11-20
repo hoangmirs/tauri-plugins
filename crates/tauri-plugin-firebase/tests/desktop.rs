@@ -13,7 +13,7 @@ use tauri::utils::acl::resolved::{Resolved, ResolvedCommand};
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_firebase::{Config, CrashExt, Frame};
+use tauri_plugin_firebase::{Config, CrashExt, Frame, PushExt};
 
 const COMMANDS: &[&str] = &[
     "mode",
@@ -27,6 +27,9 @@ const COMMANDS: &[&str] = &[
     "crash_set_keys",
     "crash_log",
     "crash_record",
+    "push_token",
+    "delete_push_token",
+    "take_push_data",
 ];
 
 /// A mock app has no capability files, so grant every command to every
@@ -203,4 +206,23 @@ fn crash_api_does_nothing_on_a_desktop() {
             line: 1,
         }],
     );
+}
+
+#[test]
+fn push_commands_answer_nothing_on_a_desktop() {
+    let w = window();
+    assert_eq!(call(&w, "push_token", json!({})), Value::Null);
+    assert_eq!(call(&w, "delete_push_token", json!({})), Value::Null);
+    assert_eq!(call(&w, "take_push_data", json!({})), json!([]));
+}
+
+#[test]
+fn push_api_answers_nothing_on_a_desktop() {
+    let w = window();
+    let push = w.app_handle().push();
+    tauri::async_runtime::block_on(async {
+        assert_eq!(push.token().await, None);
+        push.delete_token().await;
+        assert!(push.take_data().await.is_empty());
+    });
 }

@@ -23,6 +23,9 @@ const COMMANDS: &[&str] = &[
     "crash_set_keys",
     "crash_log",
     "crash_record",
+    "push_token",
+    "delete_push_token",
+    "take_push_data",
 ];
 
 /// Firebase Analytics ships as prebuilt static frameworks. Swift Package

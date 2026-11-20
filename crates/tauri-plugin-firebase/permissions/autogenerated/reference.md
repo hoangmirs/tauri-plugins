@@ -1,6 +1,6 @@
 ## Default Permission
 
-Read Remote Config, set its custom signals and hear its publishes, log Analytics events and send crash reports
+Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes
 
 #### This default permission set includes the following:
 
@@ -20,6 +20,9 @@ Read Remote Config, set its custom signals and hear its publishes, log Analytics
 - `allow-crash-set-keys`
 - `allow-crash-log`
 - `allow-crash-record`
+- `allow-push-token`
+- `allow-delete-push-token`
+- `allow-take-push-data`
 
 ## Permission Table
 
@@ -163,6 +166,32 @@ Denies the crash_set_keys command without any pre-configured scope.
 <tr>
 <td>
 
+`firebase:allow-delete-push-token`
+
+</td>
+<td>
+
+Enables the delete_push_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-delete-push-token`
+
+</td>
+<td>
+
+Denies the delete_push_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `firebase:allow-fetch`
 
 </td>
@@ -293,6 +322,32 @@ Denies the mode command without any pre-configured scope.
 <tr>
 <td>
 
+`firebase:allow-push-token`
+
+</td>
+<td>
+
+Enables the push_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-push-token`
+
+</td>
+<td>
+
+Denies the push_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `firebase:allow-register-listener`
 
 </td>
@@ -416,6 +471,32 @@ Enables the set_defaults command without any pre-configured scope.
 <td>
 
 Denies the set_defaults command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-take-push-data`
+
+</td>
+<td>
+
+Enables the take_push_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-take-push-data`
+
+</td>
+<td>
+
+Denies the take_push_data command without any pre-configured scope.
 
 </td>
 </tr>

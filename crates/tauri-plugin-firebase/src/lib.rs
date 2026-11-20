@@ -1,5 +1,6 @@
-//! `tauri-plugin-firebase`: reads Firebase Remote Config and logs Firebase
-//! Analytics events and Crashlytics reports on iOS and Android.
+//! `tauri-plugin-firebase`: reads Firebase Remote Config, logs Firebase
+//! Analytics events and Crashlytics reports, and gets Firebase Cloud Messaging
+//! tokens and silent pushes on iOS and Android.
 //!
 //! The Rust side keeps the defaults. On a desktop, and on a phone without its
 //! Firebase file, every command answers from them, so the app never needs a
@@ -7,6 +8,7 @@
 //! `"failed"`, `false` or the defaults.
 
 mod crash;
+mod push;
 mod values;
 
 use std::sync::Mutex;
@@ -17,6 +19,7 @@ use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime, State};
 
 pub use crash::{Crash, CrashExt, Frame};
+pub use push::{Push, PushData, PushExt};
 pub use values::Entry;
 
 #[cfg(target_os = "ios")]
@@ -249,7 +252,10 @@ pub fn init<R: Runtime>(config: Config) -> TauriPlugin<R> {
             crash::crash_set_collection,
             crash::crash_set_keys,
             crash::crash_log,
-            crash::crash_record
+            crash::crash_record,
+            push::push_token,
+            push::delete_push_token,
+            push::take_push_data
         ])
         .setup(move |app, api| {
             app.manage(Defaults(Mutex::new(Map::new())));
