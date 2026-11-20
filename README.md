@@ -1345,6 +1345,12 @@ No push function rejects.
   system denies notifications, on Android too, and when no token comes in
   time. It never asks the player for permission: the app asks first, for
   example with Tauri's notification plugin.
+- `pushTokenAnswer()` answers `{ token, problem }`: the token, or why there
+  is none. `problem` is `unconfigured` (no Firebase file), `denied`
+  (notifications blocked), `no-apns-token` (iOS gave no APNs token in 10
+  seconds), `apns-refused` (iOS refused to register, often a missing
+  `aps-environment`), `fcm-failed` (Firebase gave no token) or `unsupported`
+  (the web, a desktop). Log it: without it, every failure looks the same.
 - `deletePushToken()` deletes the token.
 - `onPushToken(on)` calls `on` with each new token. The token comes from
   `MessagingDelegate` on iOS and from `onNewToken` on Android, as the plugin
@@ -1356,8 +1362,8 @@ No push function rejects.
   the plugin event `pushData`. The same entry also stays in the queue, so the
   app can see one push twice. Make each action safe to repeat.
 
-The plugin's commands are `push_token`, `delete_push_token` and
-`take_push_data`, all in `firebase:default`.
+The plugin's commands are `push_token`, `push_token_answer`,
+`delete_push_token` and `take_push_data`, all in `firebase:default`.
 
 #### Silent pushes
 
@@ -1382,18 +1388,36 @@ player swiped away. Android can hold them while the phone sleeps. A silent
 push can only prepare the next opening: never make it the only way a change
 reaches the app.
 
+#### How iOS gets the APNs token
+
+Messaging makes a token only after it has the APNs token. iOS hands that
+token to the app delegate's
+`application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`, and a
+refusal to `application(_:didFailToRegisterForRemoteNotificationsWithError:)`.
+
+Firebase's app delegate proxy would add both, but it tries once, in
+`FirebaseApp.configure()`. A Tauri app creates its plugins in
+`Builder::build()`, before `UIApplicationMain` creates the application and its
+delegate, so the proxy finds no delegate and never starts. The plugin
+therefore waits for `UIApplication.didFinishLaunchingNotification`, then adds
+both methods to the delegate's class itself. The first sets
+`Messaging.messaging().apnsToken`. The second ends the wait at once and logs
+the error. When the delegate already has a method, the plugin's version calls
+it first. When Firebase's proxy did start, Messaging gets the token twice,
+which does no harm.
+
 #### How iOS receives a silent push
 
 iOS hands a silent push to the app delegate's
 `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`. A Tauri
-app's delegate has none, so the plugin adds it to the delegate's class when
-the plugin starts, before it starts Firebase:
+app's delegate has none, so the plugin adds it to the delegate's class once
+the app has finished launching:
 
 - If the class already has the method, the plugin's version handles the push
   first, then calls the original with the system's handler. The original then
   calls that handler. Otherwise the plugin calls it, once.
-- Firebase's app delegate proxy starts after the plugin's method is in place.
-  It finds the method and wraps it: Firebase's wrapper calls the plugin's
+- In an app whose delegate exists before Firebase starts, the plugin adds
+  the method first, and Firebase's app delegate proxy then finds it and wraps it: Firebase's wrapper calls the plugin's
   method with a handler of its own, and calls the system's handler once,
   after every part has answered.
 - If Firebase proxied the delegate first, the delegate's class is Firebase's
@@ -1413,9 +1437,8 @@ The app adds:
 - `remote-notification` in `UIBackgroundModes` in `Info.plist`,
 - Apple's push key in the Firebase console.
 
-Leave `FirebaseAppDelegateProxyEnabled` unset. The plugin relies on Firebase's
-proxy to pass the APNs token to Messaging: with the proxy off, `pushToken`
-waits 10 seconds and answers `null`.
+`FirebaseAppDelegateProxyEnabled` may stay unset or be `NO`: the plugin passes
+the APNs token to Messaging itself.
 
 #### How Android receives a silent push
 

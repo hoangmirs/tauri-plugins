@@ -439,6 +439,18 @@
           "markdownDescription": "Denies the push_token command without any pre-configured scope."
         },
         {
+          "description": "Enables the push_token_answer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-token-answer",
+          "markdownDescription": "Enables the push_token_answer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the push_token_answer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-token-answer",
+          "markdownDescription": "Denies the push_token_answer command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -523,10 +535,10 @@
           "markdownDescription": "Denies the unlisten command without any pre-configured scope."
         },
         {
-          "description": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`\n- `allow-push-token`\n- `allow-delete-push-token`\n- `allow-take-push-data`",
+          "description": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`\n- `allow-push-token`\n- `allow-push-token-answer`\n- `allow-delete-push-token`\n- `allow-take-push-data`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`\n- `allow-push-token`\n- `allow-delete-push-token`\n- `allow-take-push-data`"
+          "markdownDescription": "Read Remote Config, set its custom signals and hear its publishes, log Analytics events, send crash reports, and get the push token and the kept silent pushes\n#### This default permission set includes:\n\n- `allow-mode`\n- `allow-set-defaults`\n- `allow-fetch`\n- `allow-activate`\n- `allow-get-all`\n- `allow-listen`\n- `allow-unlisten`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-set-custom-signals`\n- `allow-log-event`\n- `allow-set-collection`\n- `allow-crash-set-collection`\n- `allow-crash-set-keys`\n- `allow-crash-log`\n- `allow-crash-record`\n- `allow-push-token`\n- `allow-push-token-answer`\n- `allow-delete-push-token`\n- `allow-take-push-data`"
         }
       ]
     }

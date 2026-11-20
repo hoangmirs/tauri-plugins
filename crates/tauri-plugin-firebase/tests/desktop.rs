@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "crash_log",
     "crash_record",
     "push_token",
+    "push_token_answer",
     "delete_push_token",
     "take_push_data",
 ];
@@ -212,6 +213,10 @@ fn crash_api_does_nothing_on_a_desktop() {
 fn push_commands_answer_nothing_on_a_desktop() {
     let w = window();
     assert_eq!(call(&w, "push_token", json!({})), Value::Null);
+    assert_eq!(
+        call(&w, "push_token_answer", json!({})),
+        json!({ "token": null, "problem": "unsupported" })
+    );
     assert_eq!(call(&w, "delete_push_token", json!({})), Value::Null);
     assert_eq!(call(&w, "take_push_data", json!({})), json!([]));
 }
@@ -222,6 +227,10 @@ fn push_api_answers_nothing_on_a_desktop() {
     let push = w.app_handle().push();
     tauri::async_runtime::block_on(async {
         assert_eq!(push.token().await, None);
+        assert_eq!(
+            push.token_answer().await.problem.as_deref(),
+            Some("unsupported")
+        );
         push.delete_token().await;
         assert!(push.take_data().await.is_empty());
     });

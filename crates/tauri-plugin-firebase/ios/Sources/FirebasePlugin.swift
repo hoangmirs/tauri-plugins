@@ -62,7 +62,10 @@ class FirebasePlugin: Plugin {
     // app without its Firebase file must still start on its defaults.
     guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return }
     FirebasePlugin.live = self
-    PushReceiver.install()
+    AfterLaunch.run {
+      PushReceiver.install()
+      APNsReceiver.install()
+    }
     if FirebaseApp.app() == nil { FirebaseApp.configure() }
     configured = true
     Messaging.messaging().delegate = self
@@ -79,45 +82,51 @@ class FirebasePlugin: Plugin {
     }
   }
 
-  /// The FCM token, once iOS gave Firebase an APNs token. Firebase's app
-  /// delegate proxy passes that token on, so the app must leave
-  /// `FirebaseAppDelegateProxyEnabled` unset. The app asks for notification
-  /// permission itself, before this.
+  /// The FCM token, once iOS gave Firebase an APNs token through
+  /// `APNsReceiver`. The app asks for notification permission itself, before
+  /// this. Without a token, the answer says why in `problem`.
   @objc public func pushToken(_ invoke: Invoke) {
     guard configured else {
-      invoke.resolve()
+      invoke.resolve(["problem": "unconfigured"])
       return
     }
     UNUserNotificationCenter.current().getNotificationSettings { settings in
       guard settings.authorizationStatus != .denied else {
-        invoke.resolve()
+        invoke.resolve(["problem": "denied"])
         return
       }
       DispatchQueue.main.async {
         // The app ships `FirebaseMessagingAutoInitEnabled` NO, so Firebase makes
         // no token before the player opts in. Asking turns it on.
         Messaging.messaging().isAutoInitEnabled = true
+        APNsReceiver.refused = false
         UIApplication.shared.registerForRemoteNotifications()
         Self.waitForAPNs(until: Date().addingTimeInterval(10)) { ready in
           guard ready else {
-            invoke.resolve()
+            invoke.resolve(["problem": APNsReceiver.refused ? "apns-refused" : "no-apns-token"])
             return
           }
           // Deprecated for `register(completion:)`, which answers the installation
           // id. The push service sends to the token.
-          Messaging.messaging().token { token, _ in
-            if let token { invoke.resolve(["token": token]) } else { invoke.resolve() }
+          Messaging.messaging().token { token, error in
+            if let token {
+              invoke.resolve(["token": token])
+            } else {
+              NSLog("tauri-plugin-firebase: Firebase gave no token: %@", "\(error.map { "\($0)" } ?? "no error")")
+              invoke.resolve(["problem": "fcm-failed"])
+            }
           }
         }
       }
     }
   }
 
-  /// Polls on the main thread, where Firebase's proxy writes the APNs token.
+  /// Polls on the main thread, where `APNsReceiver` writes the APNs token. A
+  /// refusal from iOS ends the wait.
   private static func waitForAPNs(until deadline: Date, then done: @escaping (Bool) -> Void) {
     if Messaging.messaging().apnsToken != nil {
       done(true)
-    } else if Date() >= deadline {
+    } else if APNsReceiver.refused || Date() >= deadline {
       done(false)
     } else {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { waitForAPNs(until: deadline, then: done) }

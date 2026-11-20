@@ -234,6 +234,33 @@ export async function pushToken(): Promise<string | null> {
   return typeof token === "string" ? token : null;
 }
 
+/** Why a call for the push token got none: no Firebase file, notifications
+ *  blocked, no APNs token from iOS in 10 seconds, iOS refused to register, no
+ *  token from Firebase, or a platform without push (the web, a desktop). */
+export type PushProblem =
+  | "unconfigured"
+  | "denied"
+  | "no-apns-token"
+  | "apns-refused"
+  | "fcm-failed"
+  | "unsupported";
+
+export type PushTokenAnswer = { token: string; problem: null } | { token: null; problem: PushProblem };
+
+const PROBLEMS: readonly string[] = ["unconfigured", "denied", "no-apns-token", "apns-refused", "fcm-failed", "unsupported"];
+
+/** The device's push token, or why there is none. A problem this version does
+ *  not know reads as `fcm-failed`. Never rejects. */
+export async function pushTokenAnswer(): Promise<PushTokenAnswer> {
+  if (!isTauri()) return { token: null, problem: "unsupported" };
+  const raw = await command<unknown>("push_token_answer", undefined, null);
+  const answer = raw as { token?: unknown; problem?: unknown } | null;
+  if (typeof answer?.token === "string" && answer.token) return { token: answer.token, problem: null };
+  if (answer === null) return { token: null, problem: "unconfigured" };
+  const problem = typeof answer.problem === "string" && PROBLEMS.includes(answer.problem) ? answer.problem : "fcm-failed";
+  return { token: null, problem: problem as PushProblem };
+}
+
 /** Deletes the device's push token. Never rejects. */
 export async function deletePushToken(): Promise<void> {
   if (!isTauri()) return;

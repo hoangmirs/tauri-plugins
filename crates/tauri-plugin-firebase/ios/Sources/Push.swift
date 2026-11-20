@@ -1,3 +1,4 @@
+import FirebaseMessaging
 import UIKit
 import UserNotifications
 
@@ -58,18 +59,19 @@ enum PushReceiver {
     UIApplicationDelegate.application(_:didReceiveRemoteNotification:fetchCompletionHandler:))
   private static var installed = false
 
-  /// Runs before `FirebaseApp.configure()`, so Firebase's app delegate proxy
-  /// finds this method on the delegate's class and calls it with a handler of
-  /// its own. When Firebase proxied the delegate first, the delegate's class
-  /// is Firebase's subclass, and this method wraps Firebase's own. Either way
-  /// the system's handler is called once.
+  /// Runs once the app has a delegate (see `AfterLaunch`). When Firebase's
+  /// app delegate proxy came later, it finds this method on the delegate's
+  /// class and calls it with a handler of its own. When Firebase proxied the
+  /// delegate first, the delegate's class is Firebase's subclass, and this
+  /// method wraps Firebase's own. Either way the system's handler is called once.
   static func install() {
     guard Thread.isMainThread else {
       DispatchQueue.main.async { install() }
       return
     }
-    let app = UIApplication.shared
-    guard !installed, let delegate = app.delegate, let cls = object_getClass(delegate) else { return }
+    guard !installed, let app = AfterLaunch.application(), let delegate = app.delegate,
+      let cls = object_getClass(delegate)
+    else { return }
     installed = true
     let original = class_getInstanceMethod(cls, selector).map {
       unsafeBitCast(method_getImplementation($0), to: Original.self)
@@ -86,9 +88,7 @@ enum PushReceiver {
     }
     let imp = imp_implementationWithBlock(receive)
     if class_addMethod(cls, selector, imp, "v@:@@@?") {
-      // UIKit reads which methods a delegate has only when the delegate is set.
-      app.delegate = nil
-      app.delegate = delegate
+      AfterLaunch.setAgain(delegate, on: app)
     } else if let method = class_getInstanceMethod(cls, selector) {
       method_setImplementation(method, imp)
     }
@@ -129,5 +129,110 @@ enum PushReceiver {
       // chain expects the main thread.
       DispatchQueue.main.async { done(ids.isEmpty ? .noData : .newData) }
     }
+  }
+}
+
+/// Runs code once the app has its delegate. A Tauri app creates its plugins
+/// in `Builder::build()`, before `UIApplicationMain` creates the application
+/// and its delegate, so a method added to the delegate at plugin start finds
+/// no delegate at all.
+enum AfterLaunch {
+  private static var observer: NSObjectProtocol?
+
+  /// Runs `then` on the main thread: at once when the app already has its
+  /// delegate, else when UIKit posts `didFinishLaunchingNotification`.
+  static func run(_ then: @escaping () -> Void) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { run(then) }
+      return
+    }
+    if application()?.delegate != nil {
+      then()
+      return
+    }
+    guard observer == nil else { return }
+    observer = NotificationCenter.default.addObserver(
+      forName: UIApplication.didFinishLaunchingNotification, object: nil, queue: .main
+    ) { _ in
+      if let observer { NotificationCenter.default.removeObserver(observer) }
+      observer = nil
+      then()
+    }
+  }
+
+  /// Sets the delegate again, because UIKit reads which methods a delegate has
+  /// only when the delegate is set. The application holds the delegate that
+  /// `UIApplicationMain` made only until the delegate changes, so without
+  /// `kept` the first `nil` frees it and the app crashes.
+  static func setAgain(_ delegate: UIApplicationDelegate, on app: UIApplication) {
+    kept = delegate
+    app.delegate = nil
+    app.delegate = delegate
+  }
+
+  private static var kept: UIApplicationDelegate?
+
+  /// The application, or nil before `UIApplicationMain` made it. Swift declares
+  /// `UIApplication.shared` never nil, so it cannot be read that early.
+  static func application() -> UIApplication? {
+    let shared = NSSelectorFromString("sharedApplication")
+    return (UIApplication.self as AnyObject).perform(shared)?.takeUnretainedValue() as? UIApplication
+  }
+}
+
+/// Gives the app delegate the two methods through which iOS answers
+/// `registerForRemoteNotifications()`. The APNs token goes to Firebase
+/// Messaging, which needs it before it makes a token. Firebase's app delegate
+/// proxy would pass the token itself, but it tries once, in
+/// `FirebaseApp.configure()`, and in a Tauri app that runs before the app has
+/// a delegate. When the proxy did start, Messaging gets the token twice, which
+/// does no harm.
+enum APNsReceiver {
+  private typealias Original = @convention(c) (AnyObject, Selector, UIApplication, AnyObject) -> Void
+  private typealias Receive = @convention(block) (AnyObject, UIApplication, AnyObject) -> Void
+
+  private static let registered = #selector(
+    UIApplicationDelegate.application(_:didRegisterForRemoteNotificationsWithDeviceToken:))
+  private static let failed = #selector(
+    UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:))
+  private static var installed = false
+
+  /// Whether iOS refused the last registration. Read and written on the main thread.
+  static var refused = false
+
+  static func install() {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { install() }
+      return
+    }
+    guard !installed, let app = AfterLaunch.application(), let delegate = app.delegate,
+      let cls = object_getClass(delegate)
+    else { return }
+    installed = true
+    let addedToken = hook(cls, registered) { token in
+      guard let token = token as? Data else { return }
+      refused = false
+      Messaging.messaging().apnsToken = token
+    }
+    let addedFailure = hook(cls, failed) { error in
+      refused = true
+      NSLog("tauri-plugin-firebase: iOS refused to register for remote notifications: %@", "\(error)")
+    }
+    if addedToken || addedFailure { AfterLaunch.setAgain(delegate, on: app) }
+  }
+
+  /// Adds `selector` to `cls`, or wraps the method it has. Answers whether it added one.
+  private static func hook(_ cls: AnyClass, _ selector: Selector, _ body: @escaping (AnyObject) -> Void) -> Bool {
+    let original = class_getInstanceMethod(cls, selector).map {
+      unsafeBitCast(method_getImplementation($0), to: Original.self)
+    }
+    let receive: Receive = { target, application, value in
+      original?(target, selector, application, value)
+      body(value)
+    }
+    let imp = imp_implementationWithBlock(receive)
+    if class_addMethod(cls, selector, imp, "v@:@@") { return true }
+    if let method = class_getInstanceMethod(cls, selector) { method_setImplementation(method, imp) }
+    return false
   }
 }

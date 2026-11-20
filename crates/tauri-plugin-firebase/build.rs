@@ -24,6 +24,7 @@ const COMMANDS: &[&str] = &[
     "crash_log",
     "crash_record",
     "push_token",
+    "push_token_answer",
     "delete_push_token",
     "take_push_data",
 ];

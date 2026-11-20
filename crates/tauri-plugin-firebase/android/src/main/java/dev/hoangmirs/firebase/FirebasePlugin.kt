@@ -3,6 +3,7 @@ package dev.hoangmirs.firebase
 import android.app.Activity
 import android.app.NotificationManager
 import android.os.Bundle
+import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -112,8 +113,12 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
   @Suppress("DEPRECATION")
   fun pushToken(invoke: Invoke) {
     val manager = activity.getSystemService(NotificationManager::class.java)
-    if (!configured || manager?.areNotificationsEnabled() == false) {
-      invoke.resolve(JSObject())
+    if (!configured) {
+      invoke.resolve(JSObject().put("problem", "unconfigured"))
+      return
+    }
+    if (manager?.areNotificationsEnabled() == false) {
+      invoke.resolve(JSObject().put("problem", "denied"))
       return
     }
     // The library's manifest turns auto-init off, so Firebase makes no token
@@ -121,9 +126,13 @@ class FirebasePlugin(private val activity: Activity) : Plugin(activity) {
     val messaging = FirebaseMessaging.getInstance()
     messaging.isAutoInitEnabled = true
     messaging.token.addOnCompleteListener { task ->
-      val answer = JSObject()
-      if (task.isSuccessful) task.result?.let { answer.put("token", it) }
-      invoke.resolve(answer)
+      val token = if (task.isSuccessful) task.result else null
+      if (token != null) {
+        invoke.resolve(JSObject().put("token", token))
+      } else {
+        Log.w("tauri-plugin-firebase", "Firebase gave no token", task.exception)
+        invoke.resolve(JSObject().put("problem", "fcm-failed"))
+      }
     }
   }
 

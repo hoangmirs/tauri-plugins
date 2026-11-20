@@ -21,6 +21,7 @@ Read Remote Config, set its custom signals and hear its publishes, log Analytics
 - `allow-crash-log`
 - `allow-crash-record`
 - `allow-push-token`
+- `allow-push-token-answer`
 - `allow-delete-push-token`
 - `allow-take-push-data`
 
@@ -341,6 +342,32 @@ Enables the push_token command without any pre-configured scope.
 <td>
 
 Denies the push_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:allow-push-token-answer`
+
+</td>
+<td>
+
+Enables the push_token_answer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`firebase:deny-push-token-answer`
+
+</td>
+<td>
+
+Denies the push_token_answer command without any pre-configured scope.
 
 </td>
 </tr>
