@@ -8,6 +8,7 @@ import {
   init,
   listen,
   logEvent,
+  onPushArrived,
   onPushData,
   onPushToken,
   parseStack,
@@ -574,6 +575,29 @@ test("onPushData_listens_to_pushData", async () => {
   assert.deepEqual(heard, [{ action: "refresh", data: null, at: 3 }]);
 });
 
+test("onPushArrived_listens_to_pushArrived_and_reads_its_extra", async () => {
+  const empty = { title: "", body: "", link: "", kind: "", id: "", group: "" };
+  const cases: [unknown, unknown][] = [
+    [
+      { title: "Hi", body: "A reply", extra: { link: "/?feedback=1", kind: "replies", id: "n1", group: "g" } },
+      { title: "Hi", body: "A reply", link: "/?feedback=1", kind: "replies", id: "n1", group: "g" },
+    ],
+    [{ title: "Bare" }, { ...empty, title: "Bare" }],
+    [{ body: "no title", extra: {} }, null],
+    ["not a push", null],
+  ];
+  for (const [sent, wanted] of cases) {
+    await resetForTests();
+    const calls = setupTauri(phone);
+    const heard: unknown[] = [];
+    await onPushArrived((push) => heard.push(push));
+    const registered = calls.find((c) => c.cmd === "plugin:firebase|register_listener");
+    assert.equal((registered?.args as { event: string }).event, "pushArrived");
+    sendEvent(sent);
+    assert.deepEqual(heard, wanted ? [wanted] : [], JSON.stringify(sent));
+  }
+});
+
 test("on the web, push functions answer null, an empty list and a stop that does nothing", async () => {
   assert.equal(await pushToken(), null);
   await deletePushToken();
@@ -582,6 +606,8 @@ test("on the web, push functions answer null, an empty list and a stop that does
   assert.doesNotThrow(() => stop());
   const stopData = await onPushData(() => assert.fail("no data on the web"));
   assert.doesNotThrow(() => stopData());
+  const stopArrived = await onPushArrived(() => assert.fail("no push on the web"));
+  assert.doesNotThrow(() => stopArrived());
 });
 
 test("on a phone whose bridge refuses, onPushToken resolves and never throws", async () => {
