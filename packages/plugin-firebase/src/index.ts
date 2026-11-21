@@ -303,6 +303,24 @@ export function onPushData(on: (entry: PushData) => void): Promise<() => void> {
   });
 }
 
+/** A push with a title and a body that came while the app was open. The
+ *  system shows nothing then: the app decides. `link`, `kind`, `id` and
+ *  `group` are the push's own data keys, empty when it had none. */
+export type PushArrived = { title: string; body: string; link: string; kind: string; id: string; group: string };
+
+/** Calls `on` with each push that has a title and comes while the app is open.
+ *  Android only: on iOS, the notification plugin's `notification` event
+ *  carries the same push. Never rejects. */
+export function onPushArrived(on: (push: PushArrived) => void): Promise<() => void> {
+  return hear("pushArrived", (raw) => {
+    const r = raw as { title?: unknown; body?: unknown; extra?: Record<string, unknown> } | null;
+    if (typeof r?.title !== "string") return;
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    const x = r.extra ?? {};
+    on({ title: r.title, body: text(r.body), link: text(x.link), kind: text(x.kind), id: text(x.id), group: text(x.group) });
+  });
+}
+
 export async function resetForTests(): Promise<void> {
   mode = undefined;
   defaults = {};

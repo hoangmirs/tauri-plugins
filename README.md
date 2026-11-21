@@ -1362,6 +1362,13 @@ No push function rejects.
   the plugin event `pushData`. The same entry also stays in the queue, so the
   app can see one push twice. Make each action safe to repeat.
 
+- `onPushArrived(on)` calls `on` with each push that has a title and comes
+  while the app is open, as `{ title, body, link, kind, id, group }`. The
+  system shows nothing then, so the app decides what to show. Android only,
+  as the plugin event `pushArrived` with `{ title, body, extra }`. On iOS, the
+  notification plugin's `notification` event carries the same push in the
+  same shape, from `willPresent`.
+
 The plugin's commands are `push_token`, `push_token_answer`,
 `delete_push_token` and `take_push_data`, all in `firebase:default`.
 

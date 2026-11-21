@@ -10,11 +10,25 @@ class PushService : FirebaseMessagingService() {
     FirebasePlugin.live()?.emit("pushToken", JSObject().put("token", token))
   }
 
-  // A message with a notification part is the library's to show, and it shows
-  // nothing while the app is open.
   override fun onMessageReceived(message: RemoteMessage) {
-    if (message.notification != null) return
+    val shown = message.notification
+    if (shown != null) {
+      arrived(shown, message.data)
+      return
+    }
     val action = message.data["action"] ?: return
     Push.receive(applicationContext, action, message.data["data"])
+  }
+
+  // The library calls this only while the app is open, and then it shows
+  // nothing. The app decides what to show, from the same shape the iOS
+  // notification plugin gives: `title`, `body` and `extra`.
+  private fun arrived(shown: RemoteMessage.Notification, data: Map<String, String>) {
+    val extra = JSObject()
+    for (key in listOf("link", "kind", "id", "group")) data[key]?.let { extra.put(key, it) }
+    FirebasePlugin.live()?.emit(
+      "pushArrived",
+      JSObject().put("title", shown.title ?: "").put("body", shown.body ?: "").put("extra", extra),
+    )
   }
 }
