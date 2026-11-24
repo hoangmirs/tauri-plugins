@@ -429,6 +429,81 @@ await keepAwake(true);
 await keepAwake(false);
 ```
 
+## `tauri-plugin-sensors`
+
+Reads a phone's motion and compass heading, so a game can be played by
+tilting, turning or shaking the phone. It also holds the screen's rotation
+while a game reads them, so a tilt does not turn the page. The plugin asks
+for no permission, and no reading leaves the device: each one goes only to
+the app's webview.
+
+### Where it reads anything
+
+- **iOS** reads CoreMotion's device motion, from one `CMMotionManager`.
+  `motion` sends its gravity, rotation rate and user acceleration. `heading`
+  sends its `heading`, from the north-referenced frame
+  (`xMagneticNorthZVertical`). One stream serves both kinds.
+- **Android** reads `SensorManager`. `motion` joins the gravity, gyroscope
+  and linear acceleration sensors. A phone without the gravity sensor gets
+  gravity and acceleration from the accelerometer, through a low-pass filter.
+  `heading` reads the rotation vector. The sensors stop while the app is in
+  the background, and start again when it comes back.
+- **Desktop and the plain web** have no sensors. `available` answers no kinds,
+  and the other commands do nothing.
+
+Each reading reaches the webview as the event `reading`:
+
+```ts
+{ kind: "motion", g: [x, y, z], r: [x, y, z], a: [x, y, z], at }
+{ kind: "heading", deg, at }
+```
+
+`g` is gravity and `a` is user acceleration, in g. `r` is the rotation rate,
+in rad/s. All three are in the device's natural frame, with CoreMotion's
+signs on both systems: a phone lying face up reads `g` of about `[0, 0, -1]`.
+`deg` is degrees from magnetic north, 0 to 360. `at` is in milliseconds on a
+clock that only counts up. It is not the time of day, and the two systems
+start it at different points, so compare it only with other readings.
+
+A sensor runs at 1 to 60 readings a second. The plugin holds a faster or
+slower rate to that range.
+
+`lock_rotation` holds the screen at the orientation it has now, and
+`unlock_rotation` puts back the orientations the app had before. Android sets
+`SCREEN_ORIENTATION_LOCKED`. iOS sets the root view controller's supported
+orientations through tao's own setter, so it holds only in a Tauri app.
+
+### Setup (Rust)
+
+```rust
+#[cfg(mobile)]
+app.handle().plugin(tauri_plugin_sensors::init())?;
+```
+
+Add `sensors:default` to a capability for the phones. It allows the five
+commands and listening for `reading`.
+
+### Use (TypeScript)
+
+```ts
+import { available, lockRotation, onReading, start, stop, unlockRotation } from "tauri-plugin-sensors-api";
+
+if ((await available()).includes("motion")) {
+  const stopListening = await onReading((reading) => {
+    if (reading.kind === "motion") tilt(reading.g);
+  });
+  await lockRotation();
+  await start("motion", 30);
+  // later
+  await stop("motion");
+  await unlockRotation();
+  stopListening();
+}
+```
+
+No call ever rejects. Outside Tauri and on a desktop, `available()` answers
+`[]` and no reading comes.
+
 ## `tauri-plugin-share-file`
 
 Opens Android's share sheet for one file, such as a picture the app drew.

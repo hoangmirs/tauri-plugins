@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-unlock-rotation"
+description = "Enables the unlock_rotation command without any pre-configured scope."
+commands.allow = ["unlock_rotation"]
+
+[[permission]]
+identifier = "deny-unlock-rotation"
+description = "Denies the unlock_rotation command without any pre-configured scope."
+commands.deny = ["unlock_rotation"]

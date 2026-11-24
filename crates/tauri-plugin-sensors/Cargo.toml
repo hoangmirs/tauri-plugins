@@ -1,0 +1,28 @@
+[package]
+name = "tauri-plugin-sensors"
+description = "Tauri plugin that reads a phone's motion and compass heading, and holds the screen's rotation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/tauri-plugin-sensors"
+readme = "../../README.md"
+keywords = ["tauri", "tauri-plugin", "ios", "android", "sensors"]
+categories = ["gui", "hardware-support"]
+links = "tauri-plugin-sensors"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.6.3", features = ["build"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tauri = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true

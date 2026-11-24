@@ -1,0 +1,11 @@
+[default]
+description = "Read the device's motion and compass heading, hear each reading, and hold the screen's rotation"
+permissions = [
+  "allow-available",
+  "allow-start",
+  "allow-stop",
+  "allow-lock-rotation",
+  "allow-unlock-rotation",
+  "allow-register-listener",
+  "allow-remove-listener",
+]
